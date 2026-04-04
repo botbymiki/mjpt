@@ -1,10 +1,7 @@
 // ============================================================
 // MJPT — Daily Reminder Cron
-// Runs on schedule via Vercel Cron.
-// Sends Telegram reminders at each user's configured local time.
-//
-// vercel.json schedule: "0 * * * *" (every hour)
-// This function checks if it's reminder time for each user.
+// Runs hourly via cron-job.org
+// Only sends reminder if user hasn't logged today.
 // ============================================================
 
 const { initializeApp, getApps, cert } = require("firebase-admin/app");
