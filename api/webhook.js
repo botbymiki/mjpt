@@ -583,10 +583,13 @@ async function sendMsg(chatId, text, inlineKeyboard = null, extra = {}) {
     body.reply_markup = { inline_keyboard: inlineKeyboard };
   }
 
+  const bodyStr = JSON.stringify(body);
+  console.log("sendMsg body:", bodyStr);
+
   const res = await fetch(`${API}/sendMessage`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body)
+    body:    bodyStr
   });
 
   return res.json();
