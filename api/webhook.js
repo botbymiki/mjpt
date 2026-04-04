@@ -147,12 +147,12 @@ async function handleStart(chatId, existingUser) {
   }
 
   console.log("Sending registration message to:", chatId);
-  const result = await sendMsg(chatId, "Hey! Welcome to mjpt 💩\n\nWho are you?", {
-    inline_keyboard: [[
+  const result = await sendMsg(chatId, "Hey! Welcome to mjpt 💩\n\nWho are you?", [
+    [
       { text: "Mike",  callback_data: "register:mike"  },
       { text: "Jenna", callback_data: "register:jenna" }
-    ]]
-  });
+    ]
+  ]);
   console.log("sendMsg result:", JSON.stringify(result));
 }
 
@@ -580,16 +580,15 @@ async function sendMsg(chatId, text, inlineKeyboard = null, extra = {}) {
   };
 
   if (inlineKeyboard) {
-    body.reply_markup = { inline_keyboard: inlineKeyboard };
+    // Accept both array format [[...]] and object format { inline_keyboard: [[...]] }
+    const kb = Array.isArray(inlineKeyboard) ? inlineKeyboard : inlineKeyboard.inline_keyboard;
+    body.reply_markup = { inline_keyboard: kb };
   }
-
-  const bodyStr = JSON.stringify(body);
-  console.log("sendMsg body:", bodyStr);
 
   const res = await fetch(`${API}/sendMessage`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    bodyStr
+    body:    JSON.stringify(body)
   });
 
   return res.json();
@@ -604,7 +603,9 @@ async function editMsg(chatId, msgId, text, inlineKeyboard = null, extra = {}) {
   };
 
   if (inlineKeyboard) {
-    body.reply_markup = { inline_keyboard: inlineKeyboard };
+    // Accept both array format [[...]] and object format { inline_keyboard: [[...]] }
+    const kb = Array.isArray(inlineKeyboard) ? inlineKeyboard : inlineKeyboard.inline_keyboard;
+    body.reply_markup = { inline_keyboard: kb };
   }
 
   const res = await fetch(`${API}/editMessageText`, {
