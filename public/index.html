@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>mjpt</title>
+  <link rel="icon" href="/assets/favicon.ico">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/pages.css">
+</head>
+<body>
+
+<div class="page" id="page">
+
+  <!-- HEADER -->
+  <div class="page-header flex justify-between items-center">
+    <div>
+      <div class="page-title">Insights</div>
+      <div class="page-sub" id="dateLabel">Loading...</div>
+    </div>
+    <button class="btn btn-secondary" id="shareBtn"
+      style="width:auto;margin:0;padding:8px 14px;font-size:var(--text-xs);gap:6px">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+        <polyline points="16 6 12 2 8 6"/>
+        <line x1="12" y1="2" x2="12" y2="15"/>
+      </svg>
+      Share
+    </button>
+  </div>
+
+  <!-- USER TOGGLE -->
+  <div class="user-toggle" id="userToggle">
+    <button class="user-toggle-btn active" data-user="both">Both</button>
+    <button class="user-toggle-btn" data-user="mike">Mike</button>
+    <button class="user-toggle-btn" data-user="jenna">Jenna</button>
+  </div>
+
+  <!-- PERIOD PILLS -->
+  <div class="pill-row" id="periodPills">
+    <button class="pill active" data-period="week">This week</button>
+    <button class="pill" data-period="today">Today</button>
+    <button class="pill" data-period="month">This month</button>
+    <button class="pill" data-period="year">This year</button>
+  </div>
+
+  <!-- GUT HEALTH SCORE -->
+  <div class="score-hero fade-in">
+    <div class="score-ring-wrap" style="position:relative;flex-shrink:0">
+      <svg width="88" height="88" viewBox="0 0 88 88">
+        <circle class="ring-bg" cx="44" cy="44" r="35"/>
+        <circle class="ring-fill good" cx="44" cy="44" r="35"
+          id="scoreRing"
+          stroke-dasharray="220"
+          stroke-dashoffset="220"/>
+      </svg>
+      <div class="score-center">
+        <div class="score-num-lg" id="scoreNum">—</div>
+        <div class="score-denom">/100</div>
+      </div>
+    </div>
+    <div class="sh-body">
+      <div class="sh-label">Gut Health Score</div>
+      <div class="sh-title" id="scoreLabel">Loading</div>
+      <div class="sh-sub">Based on consistency, frequency &amp; symptoms.</div>
+      <div class="sh-badge" id="scoreBadge">&nbsp;</div>
+    </div>
+  </div>
+
+  <!-- STAT GRID -->
+  <div class="stat-grid fade-in fade-in-delay-1">
+    <div class="stat-tile">
+      <div class="st-label">Total logs</div>
+      <div class="st-val" id="statTotal">—</div>
+      <div class="st-sub" id="statTotalSub">this period</div>
+      <div class="st-badge"><span class="badge badge-neutral" id="statTotalBadge">&nbsp;</span></div>
+    </div>
+    <div class="stat-tile">
+      <div class="st-label">Daily avg</div>
+      <div class="st-val" id="statAvg">—</div>
+      <div class="st-sub">per day</div>
+      <div class="st-badge"><span class="badge badge-good" id="statAvgBadge">Normal</span></div>
+    </div>
+    <div class="stat-tile">
+      <div class="st-label">Top Bristol</div>
+      <div class="st-val" id="statBristol">—</div>
+      <div class="st-sub" id="statBristolSub">most frequent</div>
+      <div class="st-badge"><span class="badge" id="statBristolBadge">&nbsp;</span></div>
+    </div>
+    <div class="stat-tile">
+      <div class="st-label">Symptom rate</div>
+      <div class="st-val" id="statSymptom">—</div>
+      <div class="st-sub">of logs flagged</div>
+      <div class="st-badge"><span class="badge" id="statSymptomBadge">&nbsp;</span></div>
+    </div>
+  </div>
+
+  <!-- FREQUENCY CHART -->
+  <div class="section-label fade-in fade-in-delay-2">Frequency — past 7 days</div>
+  <div class="card fade-in fade-in-delay-2" style="padding-bottom:var(--space-4)">
+    <div class="flex justify-between items-start" style="margin-bottom:var(--space-4)">
+      <div>
+        <div style="font-size:var(--text-sm);font-weight:var(--weight-semi);color:var(--color-ink)">Daily log count</div>
+        <div style="font-size:var(--text-xs);color:var(--color-ink-soft);margin-top:2px" id="chartSubLabel">Combined this week</div>
+      </div>
+      <div class="chart-legend" id="chartLegend">
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--color-ink)"></div>
+          <span>Mike</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background:var(--color-accent)"></div>
+          <span>Jenna</span>
+        </div>
+      </div>
+    </div>
+    <div class="bars" id="barChart">
+      <!-- Rendered by JS -->
+    </div>
+  </div>
+
+  <!-- BRISTOL DISTRIBUTION -->
+  <div class="section-label fade-in fade-in-delay-3">Bristol Scale Distribution</div>
+  <div class="card fade-in fade-in-delay-3">
+    <div class="flex justify-between items-center" style="margin-bottom:var(--space-4)">
+      <div style="font-size:var(--text-sm);font-weight:var(--weight-semi);color:var(--color-ink)">Stool consistency breakdown</div>
+      <div style="font-size:var(--text-xs);color:var(--color-ink-faint)">WHO reference</div>
+    </div>
+    <div class="bristol-dist" id="bristolDist">
+      <!-- Rendered by JS -->
+    </div>
+  </div>
+
+  <!-- PEAK TIMES -->
+  <div class="section-label fade-in fade-in-delay-3">Peak Activity Times</div>
+  <div class="card fade-in fade-in-delay-3">
+    <div style="font-size:var(--text-sm);font-weight:var(--weight-semi);color:var(--color-ink);margin-bottom:var(--space-4)">When do you go most?</div>
+    <div class="time-grid" id="timeGrid">
+      <!-- Rendered by JS -->
+    </div>
+  </div>
+
+  <!-- SYMPTOMS -->
+  <div class="section-label fade-in fade-in-delay-4">Symptom Frequency</div>
+  <div class="card fade-in fade-in-delay-4">
+    <div style="font-size:var(--text-sm);font-weight:var(--weight-semi);color:var(--color-ink);margin-bottom:var(--space-4)">Flagged symptoms this period</div>
+    <div id="symptomChart">
+      <!-- Rendered by JS -->
+    </div>
+  </div>
+
+  <!-- INSIGHTS -->
+  <div class="section-label fade-in fade-in-delay-5">Clinical Insights</div>
+  <div id="insightsList">
+    <!-- Rendered by JS -->
+  </div>
+
+  <div class="spacer-8"></div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <a class="nav-btn active" href="/index.html">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    <span>Insights</span>
+  </a>
+  <a class="nav-btn" href="/feed.html">
+    <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+    <span>Feed</span>
+  </a>
+  <a class="nav-btn" href="/settings.html">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <span>Settings</span>
+  </a>
+</nav>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script type="module" src="/js/insights.js"></script>
+</body>
+</html>
