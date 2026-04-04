@@ -574,7 +574,7 @@ async function savePreset(userId, updates) {
 // ── TELEGRAM API HELPERS ──
 async function sendMsg(chatId, text, inlineKeyboard = null, extra = {}) {
   const body = {
-    chat_id:    chatId,
+    chat_id: chatId,
     text,
     ...extra
   };
