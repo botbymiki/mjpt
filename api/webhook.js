@@ -21,13 +21,13 @@ const API = `https://api.telegram.org/bot${BOT}`;
 
 // ── BRISTOL INFO ──
 const BRISTOL = {
-  1: { emoji: "🪨", desc: "Separate hard lumps — severe constipation" },
-  2: { emoji: "🌰", desc: "Lumpy sausage — mild constipation" },
-  3: { emoji: "🌭", desc: "Sausage with cracks — normal" },
-  4: { emoji: "💩", desc: "Smooth snake — ideal!" },
-  5: { emoji: "☁️", desc: "Soft blobs — lacking fibre" },
-  6: { emoji: "🌊", desc: "Fluffy pieces — mild diarrhea" },
-  7: { emoji: "💧", desc: "Watery — severe diarrhea" }
+  1: { emoji: "T1", desc: "Separate hard lumps — severe constipation" },
+  2: { emoji: "T2", desc: "Lumpy sausage — mild constipation" },
+  3: { emoji: "T3", desc: "Sausage with cracks — normal" },
+  4: { emoji: "T4", desc: "Smooth snake — ideal!" },
+  5: { emoji: "T5", desc: "Soft blobs — lacking fibre" },
+  6: { emoji: "T6", desc: "Fluffy pieces — mild diarrhea" },
+  7: { emoji: "T7", desc: "Watery — severe diarrhea" }
 };
 
 const COLORS = ["brown", "dark_brown", "yellow", "green", "red", "black", "pale"];
@@ -188,18 +188,22 @@ async function handleQuickLog(chatId, user) {
 async function handleLogStart(chatId, user) {
   sessions[chatId] = { step: "bristol", data: { user: user.id, source: "telegram", quick: false } };
 
-  await sendMsg(chatId, `📋 *Full Log Entry*\n\nWhat's the Bristol type?`, {
+  await sendMsg(chatId, `Full Log Entry\n\nWhat's the Bristol type?`, {
     inline_keyboard: [
       [
-        { text: "1 🪨", callback_data: "log:bristol:1" },
-        { text: "2 🌰", callback_data: "log:bristol:2" },
-        { text: "3 🌭", callback_data: "log:bristol:3" },
-        { text: "4 💩", callback_data: "log:bristol:4" }
+        { text: "1 — Hard lumps",     callback_data: "log:bristol:1" },
+        { text: "2 — Lumpy sausage",  callback_data: "log:bristol:2" }
       ],
       [
-        { text: "5 ☁️", callback_data: "log:bristol:5" },
-        { text: "6 🌊", callback_data: "log:bristol:6" },
-        { text: "7 💧", callback_data: "log:bristol:7" }
+        { text: "3 — Cracked sausage", callback_data: "log:bristol:3" },
+        { text: "4 — Smooth (ideal)",  callback_data: "log:bristol:4" }
+      ],
+      [
+        { text: "5 — Soft blobs",    callback_data: "log:bristol:5" },
+        { text: "6 — Fluffy pieces", callback_data: "log:bristol:6" }
+      ],
+      [
+        { text: "7 — Watery", callback_data: "log:bristol:7" }
       ]
     ]
   }, { parse_mode: "Markdown" });
