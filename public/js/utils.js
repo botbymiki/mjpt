@@ -116,30 +116,28 @@ export function getPeriodRange(period) {
 
 
 // ── BRISTOL SCALE ──
+// Fun names match CSV composition terms from Poopie app.
+// Scientific info shown as tooltip/info only.
 
 export const BRISTOL = {
-  1: { label: "Type 1", desc: "Separate hard lumps",          clinical: "Severe constipation", color: "#8B4513" },
-  2: { label: "Type 2", desc: "Lumpy sausage",                clinical: "Mild constipation",   color: "#A0522D" },
-  3: { label: "Type 3", desc: "Sausage with cracks",          clinical: "Normal",               color: "#6B3A2A" },
-  4: { label: "Type 4", desc: "Smooth snake or sausage",      clinical: "Ideal",                color: "#8B6355" },
-  5: { label: "Type 5", desc: "Soft blobs, clear-cut edges",  clinical: "Lacking fibre",        color: "#A08060" },
-  6: { label: "Type 6", desc: "Fluffy pieces, ragged edges",  clinical: "Mild diarrhea",        color: "#B09060" },
-  7: { label: "Type 7", desc: "Watery, no solid pieces",      clinical: "Severe diarrhea",      color: "#C0A070" }
+  1: { label: "Pellet",  desc: "Separate hard little balls",     clinical: "Severe constipation — drink more water!", color: "#6B3A2A", scoreColor: "danger" },
+  2: { label: "Rock",    desc: "Lumpy, hard, difficult to pass", clinical: "Mild constipation — add more fibre.",      color: "#7A4030", scoreColor: "warn"   },
+  3: { label: "Crackle", desc: "Sausage-like with cracks",       clinical: "Slightly dry but mostly normal.",          color: "#8B5040", scoreColor: "good"   },
+  4: { label: "Soft",    desc: "Smooth, easy to pass",           clinical: "Ideal! This is the gold standard.",        color: "#8B6355", scoreColor: "good"   },
+  5: { label: "Blob",    desc: "Soft blobs with clear edges",    clinical: "Lacking fibre — eat more veggies.",        color: "#A07850", scoreColor: "warn"   },
+  6: { label: "Mush",    desc: "Fluffy, mushy, ragged edges",    clinical: "Mild diarrhea — check hydration.",         color: "#B09060", scoreColor: "warn"   },
+  7: { label: "Liquid",  desc: "Completely watery, no solids",   clinical: "Diarrhea — rest and hydrate urgently.",    color: "#C0A070", scoreColor: "danger" }
 };
 
 export function bristolClass(type) {
-  if (type <= 2) return "bad";
+  if (type <= 2) return "danger";
   if (type === 3 || type === 4) return "good";
-  if (type === 5) return "ok";
-  return "bad";
+  if (type === 5 || type === 6) return "warn";
+  return "danger";
 }
 
 export function bristolBadgeText(type) {
-  if (type <= 2) return "Hard";
-  if (type === 3) return "OK";
-  if (type === 4) return "Ideal";
-  if (type === 5) return "Soft";
-  return "Loose";
+  return BRISTOL[type]?.label || "Unknown";
 }
 
 
@@ -324,19 +322,25 @@ export function calcSymptomFreq(logs) {
 // ── PEAK TIMES ──
 
 export function calcPeakTimes(logs) {
-  // Returns count per time bucket
-  const buckets = { "6-8": 0, "8-10": 0, "10-12": 0, "12-15": 0, "15-18": 0, "18-22": 0 };
+  const buckets = {
+    "06:00–08:00": 0,
+    "08:00–10:00": 0,
+    "10:00–12:00": 0,
+    "12:00–15:00": 0,
+    "15:00–18:00": 0,
+    "18:00–22:00": 0
+  };
 
   logs.forEach(l => {
     const d    = l.timestamp?.toDate ? l.timestamp.toDate() : new Date(l.timestamp);
     const hour = parseInt(d.toLocaleString("en-US", { timeZone: DISPLAY_TZ, hour: "numeric", hour12: false }));
 
-    if (hour >= 6 && hour < 8)   buckets["6-8"]++;
-    else if (hour >= 8 && hour < 10)  buckets["8-10"]++;
-    else if (hour >= 10 && hour < 12) buckets["10-12"]++;
-    else if (hour >= 12 && hour < 15) buckets["12-15"]++;
-    else if (hour >= 15 && hour < 18) buckets["15-18"]++;
-    else if (hour >= 18 && hour < 22) buckets["18-22"]++;
+    if (hour >= 6  && hour < 8)  buckets["06:00–08:00"]++;
+    else if (hour >= 8  && hour < 10) buckets["08:00–10:00"]++;
+    else if (hour >= 10 && hour < 12) buckets["10:00–12:00"]++;
+    else if (hour >= 12 && hour < 15) buckets["12:00–15:00"]++;
+    else if (hour >= 15 && hour < 18) buckets["15:00–18:00"]++;
+    else if (hour >= 18 && hour < 22) buckets["18:00–22:00"]++;
   });
 
   return buckets;
