@@ -40,23 +40,38 @@ const sessions = {};
 
 // ── MAIN HANDLER ──
 module.exports = async (req, res) => {
+  // GET test route
+  if (req.method === "GET") {
+    try {
+      await db.collection("config").doc("settings").get();
+      return res.status(200).json({ ok: true, firebase: "connected" });
+    } catch (err) {
+      return res.status(200).json({ ok: false, firebase: "failed", error: err.message });
+    }
+  }
+
   if (req.method !== "POST") return res.status(200).json({ ok: true });
 
-  const update = req.body;
+  try {
+    const update = req.body;
 
-  // Handle callback queries (inline button taps)
-  if (update.callback_query) {
-    await handleCallback(update.callback_query);
-    return res.status(200).json({ ok: true });
+    // Handle callback queries (inline button taps)
+    if (update.callback_query) {
+      await handleCallback(update.callback_query);
+      return res.status(200).json({ ok: true });
+    }
+
+    // Handle messages
+    if (update.message) {
+      await handleMessage(update.message);
+      return res.status(200).json({ ok: true });
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error("WEBHOOK ERROR:", err);
+    res.status(200).json({ ok: true }); // Always return 200 to Telegram
   }
-
-  // Handle messages
-  if (update.message) {
-    await handleMessage(update.message);
-    return res.status(200).json({ ok: true });
-  }
-
-  res.status(200).json({ ok: true });
 };
 
 
