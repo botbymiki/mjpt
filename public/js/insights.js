@@ -27,9 +27,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   initDateLabel();
   initUserToggle();
   initPeriodPills();
+  initShareBtn();
   await loadLogs();
   render();
 });
+
+
+function initShareBtn() {
+  const btn = $("#shareBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const { generateReport } = await import("/js/report.js");
+    btn.textContent = "Generating...";
+    btn.disabled    = true;
+    const logs      = filterLogs();
+    const ok        = await generateReport(currentUser, currentPeriod, allLogs);
+    btn.textContent = "Share";
+    btn.disabled    = false;
+    if (!ok) showToast("Failed to generate image");
+  });
+}
 
 
 function initDateLabel() {
@@ -138,12 +155,13 @@ function renderScore(logs) {
   ring.classList.remove("good", "warn", "danger");
   ring.classList.add(info.class);
 
-  // Animate ring
-  setTimeout(() => {
-    ring.style.strokeDashoffset = scoreRingOffset(score);
-  }, 100);
+  // Animate ring — use requestAnimationFrame for reliable timing
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      ring.style.strokeDashoffset = scoreRingOffset(score);
+    });
+  });
 
-  // Badge: compare to previous period
   badgeEl.textContent = "Based on this period's logs";
 }
 
@@ -171,12 +189,13 @@ function renderStats(logs) {
   $("#statAvg").textContent   = avg;
 
   if (topBristol) {
-    $("#statBristol").textContent    = `T${topBristol}`;
-    $("#statBristolSub").textContent = BRISTOL[topBristol]?.clinical || "most frequent";
-    const cls = bristolClass(parseInt(topBristol));
+    const b    = BRISTOL[parseInt(topBristol)];
+    $("#statBristol").textContent    = b?.label || `T${topBristol}`;
+    $("#statBristolSub").textContent = b?.desc  || "most frequent";
+    const cls     = bristolClass(parseInt(topBristol));
     const badgeEl = $("#statBristolBadge");
-    badgeEl.textContent = bristolBadgeText(parseInt(topBristol));
-    badgeEl.className   = `badge badge-${cls === "good" ? "good" : cls === "bad" ? "danger" : "warn"}`;
+    badgeEl.textContent = parseInt(topBristol) === 4 ? "The Dream" : b?.label || "—";
+    badgeEl.className   = `badge badge-${cls}`;
   }
 
   $("#statSymptom").textContent = `${symptomRate}%`;
@@ -283,24 +302,24 @@ function renderPeakTimes(logs) {
   const container = $("#timeGrid");
   container.innerHTML = "";
 
-  const times = calcPeakTimes(logs);
+  const times  = calcPeakTimes(logs);
   const maxVal = Math.max(...Object.values(times), 1);
 
   const buckets = [
-    { key: "6-8",   label: "6–8" },
-    { key: "8-10",  label: "8–10" },
-    { key: "10-12", label: "10–12" },
-    { key: "12-15", label: "12–15" },
-    { key: "15-18", label: "15–18" },
-    { key: "18-22", label: "18–22" }
+    { key: "06:00–08:00", label: "06–08" },
+    { key: "08:00–10:00", label: "08–10" },
+    { key: "10:00–12:00", label: "10–12" },
+    { key: "12:00–15:00", label: "12–15" },
+    { key: "15:00–18:00", label: "15–18" },
+    { key: "18:00–22:00", label: "18–22" }
   ];
 
   const peak = Object.entries(times).sort((a, b) => b[1] - a[1])[0]?.[0];
 
   buckets.forEach(({ key, label }) => {
-    const h   = Math.round((times[key] / maxVal) * 44);
+    const h      = Math.round((times[key] / maxVal) * 44);
     const isPeak = key === peak && times[key] > 0;
-    const col = document.createElement("div");
+    const col    = document.createElement("div");
     col.className = "time-col";
     col.innerHTML = `
       <div class="time-bar-wrap">
@@ -359,42 +378,53 @@ function renderInsights(logs) {
     return;
   }
 
-  const dist        = calcBristolDist(logs);
-  const freq        = calcSymptomFreq(logs);
-  const times       = calcPeakTimes(logs);
-  const score       = calcGutScore(logs);
-  const idealPct    = (dist["3"] || 0) + (dist["4"] || 0);
-  const peakBucket  = Object.entries(times).sort((a, b) => b[1] - a[1])[0]?.[0];
-  const insights    = [];
+  const dist       = calcBristolDist(logs);
+  const freq       = calcSymptomFreq(logs);
+  const times      = calcPeakTimes(logs);
+  const score      = calcGutScore(logs);
+  const idealPct   = (dist["3"] || 0) + (dist["4"] || 0);
+  const peakBucket = Object.entries(times).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const insights   = [];
 
-  // Bristol insight
+  // Bristol insight — use fun names
   if (idealPct >= 60) {
-    insights.push({ type: "good", text: `<strong>${idealPct}% of logs were Type 3–4</strong> — clinically healthy consistency range. Your gut is performing well.` });
+    insights.push({ type: "good", text: `<strong>${idealPct}% of your logs were Crackle or Soft</strong> — that's the sweet spot. Your gut is doing great!` });
   } else if (idealPct >= 40) {
-    insights.push({ type: "note", text: `<strong>${idealPct}% of logs were Type 3–4.</strong> There's room to improve consistency. Hydration and fibre often help.` });
+    insights.push({ type: "note", text: `<strong>${idealPct}% were in the good range (Crackle/Soft).</strong> Still room to improve — try drinking more water and eating more fibre.` });
   } else {
-    insights.push({ type: "note", text: `<strong>Consistency needs attention.</strong> Most logs were outside the ideal Type 3–4 range. Consider tracking diet or speaking to a GP.` });
+    insights.push({ type: "note", text: `<strong>Consistency needs some work.</strong> Most logs were on the harder or mushier side. Diet and hydration are usually the first things to check.` });
   }
 
   // Bloating insight
   if (freq.bloating > 0) {
-    insights.push({ type: "note", text: `<strong>Bloating flagged in ${freq.bloating}% of logs.</strong> Consider tracking meals to identify potential dietary triggers.` });
+    insights.push({ type: "note", text: `<strong>Bloating showed up in ${freq.bloating}% of logs.</strong> Try tracking what you ate before these — dairy and gluten are common culprits.` });
   }
 
-  // Blood — always flag if present
+  // Cramps insight
+  if (freq.cramps > 0) {
+    insights.push({ type: "note", text: `<strong>Cramps in ${freq.cramps}% of logs.</strong> Could be stress, diet, or just a rough week. Worth noting if it keeps happening.` });
+  }
+
+  // Blood — always flag
   if (freq.blood > 0) {
-    insights.push({ type: "note", text: `<strong>Blood noted in ${freq.blood}% of logs.</strong> While often benign (e.g. haemorrhoids), persistent blood warrants a GP visit.` });
+    insights.push({ type: "note", text: `<strong>Blood noted in ${freq.blood}% of logs.</strong> Often harmless (like from straining), but if it keeps happening — see a doctor.` });
   }
 
-  // Peak time insight
+  // Peak time — proper 24hr, no AM/PM confusion
   if (peakBucket && times[peakBucket] > 0) {
-    const timeLabel = peakBucket.replace("-", "–") + " AM";
-    insights.push({ type: "info", text: `<strong>Peak activity: ${peakBucket} AM.</strong> Morning bowel movements post-breakfast are a normal gastrocolic reflex response.` });
+    const isMorning  = peakBucket.startsWith("06") || peakBucket.startsWith("08") || peakBucket.startsWith("10");
+    const timeNote   = isMorning
+      ? "Your gut loves mornings — totally normal after breakfast."
+      : "You tend to go later in the day — nothing wrong with that!";
+    insights.push({ type: "info", text: `<strong>Peak time: ${peakBucket}.</strong> ${timeNote}` });
   }
 
-  // Score trend
+  // Score insight — plain language
   if (score !== null) {
-    insights.push({ type: score >= 60 ? "good" : "note", text: `<strong>Gut score: ${score}/100.</strong> ${score >= 80 ? "Excellent gut health this period." : score >= 60 ? "Good gut health, with minor areas to watch." : "Several factors are pulling your score down — consistency and symptoms are key."}` });
+    const scoreText = score >= 80 ? "Your gut is killing it this period."
+      : score >= 60 ? "Doing well overall, with a few things to keep an eye on."
+      : "A few things are dragging the score down — consistency and symptoms are the main factors.";
+    insights.push({ type: score >= 60 ? "good" : "note", text: `<strong>Gut score: ${score}/100.</strong> ${scoreText}` });
   }
 
   insights.forEach(({ type, text }) => {
