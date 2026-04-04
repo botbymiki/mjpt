@@ -80,10 +80,14 @@ async function handleMessage(msg) {
   const chatId = msg.chat.id;
   const text   = (msg.text || "").trim();
 
+  console.log(`MSG from ${chatId}: ${text}`);
+
   // Identify user
   const user = await getUserByChatId(chatId);
+  console.log(`User found:`, user ? user.id : "none");
 
   if (text.startsWith("/start")) {
+    console.log("Handling /start");
     await handleStart(chatId, user);
     return;
   }
@@ -136,17 +140,20 @@ async function handleMessage(msg) {
 
 // ── /start ──
 async function handleStart(chatId, existingUser) {
+  console.log("handleStart called, existingUser:", existingUser?.id);
   if (existingUser) {
     await sendMsg(chatId, `Welcome back, ${existingUser.name}! 👋\n\nUse /quick to log fast or /log for full entry.`);
     return;
   }
 
-  await sendMsg(chatId, "Hey! Welcome to mjpt 💩\n\nWho are you?", {
+  console.log("Sending registration message to:", chatId);
+  const result = await sendMsg(chatId, "Hey! Welcome to mjpt 💩\n\nWho are you?", {
     inline_keyboard: [[
       { text: "Mike",  callback_data: "register:mike"  },
       { text: "Jenna", callback_data: "register:jenna" }
     ]]
   });
+  console.log("sendMsg result:", JSON.stringify(result));
 }
 
 
