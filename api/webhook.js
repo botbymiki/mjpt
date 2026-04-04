@@ -106,6 +106,11 @@ async function handleMessage(msg) {
     return;
   }
 
+  if (text.startsWith("/check") || text === "c") {
+    await handleCheck(chatId, user);
+    return;
+  }
+
   // Handle conversation state
   const session = sessions[chatId];
   if (session) {
@@ -210,6 +215,21 @@ async function handleCallback(cb) {
     const parts = data.split(":");
     const field = parts[1];
     const value = parts[2];
+
+    // Reminder button shortcuts
+    if (field === "quick") {
+      await handleQuickLog(chatId, user);
+      return;
+    }
+    if (field === "full") {
+      await handleLogStart(chatId, user);
+      return;
+    }
+    if (field === "skip") {
+      await editMsg(chatId, msgId, "No worries! Don't forget to log later. 👋");
+      return;
+    }
+
     await handleLogCallback(chatId, msgId, user, field, value);
     return;
   }
@@ -443,6 +463,43 @@ async function handlePresetCallback(chatId, msgId, user, field, value) {
 }
 
 
+// ── /check ──
+async function handleCheck(chatId, user) {
+  const tz       = user.id === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
+  const now      = new Date();
+  const startOfDay = new Date(now.toLocaleString("en-US", { timeZone: tz }));
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const snap = await db.collection("logs")
+    .where("user", "==", user.id)
+    .where("timestamp", ">=", Timestamp.fromDate(startOfDay))
+    .get();
+
+  const count = snap.size;
+
+  if (count === 0) {
+    await sendMsg(chatId,
+      `No logs yet today, ${user.name}. Want to log now?`, {
+      inline_keyboard: [[
+        { text: "⚡ Quick Log", callback_data: "log:quick:quick" },
+        { text: "📋 Full Log",  callback_data: "log:full:full"   }
+      ]]
+    });
+  } else {
+    const logs  = snap.docs.map(d => d.data());
+    const types = logs.map(l => `T${l.bristolType}`).join(", ");
+    await sendMsg(chatId,
+      `You've logged *${count}x* today. Nice work! 💩\n\n_Types: ${types}_\n\nWant to add another?`, {
+      inline_keyboard: [[
+        { text: "⚡ Quick Log", callback_data: "log:quick:quick" },
+        { text: "📋 Full Log",  callback_data: "log:full:full"   },
+        { text: "Nope, I'm good", callback_data: "log:skip:skip" }
+      ]]
+    }, { parse_mode: "Markdown" });
+  }
+}
+
+
 // ── /help ──
 async function handleHelp(chatId, user) {
   const name = user?.name || "there";
@@ -451,10 +508,11 @@ async function handleHelp(chatId, user) {
     `*Commands:*\n` +
     `/quick — instant log with your preset\n` +
     `/log — full guided log entry\n` +
+    `/check — see today's logs + quick log offer\n` +
     `/history — see your last 5 logs\n` +
     `/preset — update your quick log defaults\n` +
     `/help — show this message\n\n` +
-    `_Shortcut: send "q" for quick log_`,
+    `_Shortcuts: "q" for quick log, "c" for check_`,
     null, { parse_mode: "Markdown" }
   );
 }
