@@ -4,7 +4,7 @@
 // Called from insights.js share button.
 // ============================================================
 
-import { db } from "/js/firebase.js";
+import { db } from "/public/js/firebase.js";
 import {
   collection, query, orderBy, getDocs
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
@@ -13,7 +13,7 @@ import {
   calcGutScore, scoreLabel, calcBristolDist,
   getFunTitle, formatDateShort, getPeriodRange,
   BRISTOL, USERS
-} from "/js/utils.js";
+} from "/public/js/utils.js";
 
 
 // ── GENERATE REPORT IMAGE ──
