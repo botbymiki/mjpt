@@ -214,43 +214,74 @@ export function scoreRingOffset(score, r = 40) {
 
 // ── FUN TITLES ──
 
-const TITLES_MIKE = [
-  "Consistency King",
-  "The Regular",
-  "Smooth Operator",
-  "Type 4 Champion",
-  "Daily Achiever",
-  "The Reliable One",
-  "Gut Whisperer"
-];
-
-const TITLES_JENNA = [
-  "Prolific Pooper",
-  "High Frequency Queen",
-  "The Overachiever",
-  "Five-a-Day Champion",
-  "Gut Powerhouse",
-  "Unstoppable Force",
-  "The Record Breaker"
-];
-
-const TITLES_COMBINED = [
-  "Prolific Household",
-  "Dynamic Gut Duo",
-  "The Poop Power Couple",
-  "Combined Force of Nature",
-  "Unstoppable Together"
-];
+// ── FUN TITLES ──
+// Titles are earned based on actual log data, not random rotation.
+// Criteria applied in order — first match wins.
 
 export function getFunTitle(user, logs) {
-  const pool = user === "combined" ? TITLES_COMBINED
-    : user === "mike" ? TITLES_MIKE
-    : TITLES_JENNA;
+  if (!logs || logs.length === 0) return "Getting Started";
 
-  // Deterministic pick based on week number
-  const week = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
-  return pool[week % pool.length];
+  const total      = logs.length;
+  const days       = 7;
+  const avgPerDay  = total / days;
+
+  // Bristol distribution
+  const bristolCounts = {};
+  logs.forEach(l => { if (l.bristolType) bristolCounts[l.bristolType] = (bristolCounts[l.bristolType] || 0) + 1; });
+  const softPct   = Math.round(((bristolCounts[4] || 0) / total) * 100);
+  const liquidPct = Math.round(((bristolCounts[7] || 0) / total) * 100);
+  const rockPct   = Math.round(((bristolCounts[1] || 0) + (bristolCounts[2] || 0)) / total * 100);
+
+  // Symptoms
+  const withSymptoms = logs.filter(l => l.symptoms && !l.symptoms.includes("none") && l.symptoms.length > 0).length;
+  const symptomPct   = Math.round((withSymptoms / total) * 100);
+  const hasBlood     = logs.some(l => l.symptoms?.includes("blood"));
+
+  // ── CRITERIA (order matters — first match wins) ──
+
+  // Medical concern
+  if (hasBlood)               return "See a Doctor";
+
+  // Consistency problems
+  if (liquidPct >= 40)        return "Waterfall Mode";
+  if (rockPct >= 50)          return "The Rock Collection";
+
+  // Frequency extremes
+  if (avgPerDay >= 6)         return user === "jenna" ? "Five-a-Day Champion" : "The Overachiever";
+  if (avgPerDay < 0.5)        return "The Ghost Pooper";
+
+  // Symptom heavy
+  if (symptomPct >= 50)       return "Rough Patch";
+  if (symptomPct >= 30)       return "Needs More Fibre";
+
+  // Ideal consistency
+  if (softPct >= 70)          return user === "mike" ? "Consistency King" : "Consistency Queen";
+  if (softPct >= 50)          return "Smooth Operator";
+
+  // High frequency but healthy
+  if (avgPerDay >= 3)         return user === "jenna" ? "Prolific Pooper" : "Daily Achiever";
+
+  // Default healthy
+  return user === "mike" ? "The Reliable One" : "Gut Powerhouse";
 }
+
+// Full title criteria reference (for display in UI):
+export const TITLE_CRITERIA = [
+  { title: "See a Doctor",       criteria: "Blood detected in any log" },
+  { title: "Waterfall Mode",     criteria: "40%+ logs are Liquid (Type 7)" },
+  { title: "The Rock Collection",criteria: "50%+ logs are Pellet or Rock (Type 1–2)" },
+  { title: "Five-a-Day Champion",criteria: "Average 6+ logs per day (Jenna)" },
+  { title: "The Overachiever",   criteria: "Average 6+ logs per day (Mike)" },
+  { title: "The Ghost Pooper",   criteria: "Less than 1 log every 2 days" },
+  { title: "Rough Patch",        criteria: "50%+ logs have symptoms" },
+  { title: "Needs More Fibre",   criteria: "30%+ logs have symptoms" },
+  { title: "Consistency King/Queen", criteria: "70%+ logs are Soft (Type 4)" },
+  { title: "Smooth Operator",    criteria: "50%+ logs are Soft (Type 4)" },
+  { title: "Prolific Pooper",    criteria: "Average 3+ logs/day (Jenna)" },
+  { title: "Daily Achiever",     criteria: "Average 3+ logs/day (Mike)" },
+  { title: "The Reliable One",   criteria: "Healthy default (Mike)" },
+  { title: "Gut Powerhouse",     criteria: "Healthy default (Jenna)" }
+];
 
 
 // ── DOM HELPERS ──
