@@ -272,22 +272,28 @@ function renderBristolDist(logs) {
   const container = $("#bristolDist");
   container.innerHTML = "";
 
-  const dist = calcBristolDist(logs);
+  // Count each type individually
+  const counts = { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0 };
+  logs.forEach(l => { if (l.bristolType && counts[l.bristolType] !== undefined) counts[l.bristolType]++; });
+  const total = logs.length || 1;
 
   const rows = [
-    { key: "1-2", label: "T1–2", cls: "bad",  tag: "Hard",  tagCls: "badge-danger" },
-    { key: "3",   label: "T3",   cls: "ok",   tag: "OK",    tagCls: "badge-warn"   },
-    { key: "4",   label: "T4",   cls: "good", tag: "Ideal", tagCls: "badge-good"   },
-    { key: "5",   label: "T5",   cls: "ok",   tag: "Soft",  tagCls: "badge-warn"   },
-    { key: "6-7", label: "T6–7", cls: "bad",  tag: "Loose", tagCls: "badge-danger" }
+    { type: 1, cls: "bad",  tag: "Hard",    tagCls: "badge-danger" },
+    { type: 2, cls: "bad",  tag: "Rock",     tagCls: "badge-danger" },
+    { type: 3, cls: "ok",   tag: "OK",       tagCls: "badge-warn"   },
+    { type: 4, cls: "good", tag: "Ideal",    tagCls: "badge-good"   },
+    { type: 5, cls: "ok",   tag: "Soft",     tagCls: "badge-warn"   },
+    { type: 6, cls: "bad",  tag: "Mushy",    tagCls: "badge-danger" },
+    { type: 7, cls: "bad",  tag: "Liquid",   tagCls: "badge-danger" }
   ];
 
   rows.forEach(row => {
-    const pct = dist[row.key] || 0;
-    const el  = document.createElement("div");
+    const pct   = Math.round((counts[row.type] / total) * 100);
+    const b     = BRISTOL[row.type];
+    const el    = document.createElement("div");
     el.className = "bd-row";
     el.innerHTML = `
-      <div class="bd-label" style="color:var(--color-ink-soft)">${row.label}</div>
+      <div class="bd-label" style="color:var(--color-ink-soft);width:56px">${b.label}</div>
       <div class="bd-track">
         <div class="bd-fill ${row.cls}" style="width:${pct}%"></div>
       </div>
