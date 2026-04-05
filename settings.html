@@ -10,6 +10,91 @@
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/pages.css">
+  <style>
+    /* ── BOTTOM SHEET ── */
+    .sheet-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 200;
+      align-items: flex-end;
+      backdrop-filter: blur(3px);
+    }
+    .sheet-overlay.open { display: flex; }
+    .sheet {
+      background: var(--color-bg);
+      border-radius: 24px 24px 0 0;
+      width: 100%; padding: 12px 20px 48px;
+      animation: slideUp 0.25s ease;
+      max-height: 80vh; overflow-y: auto;
+    }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    .sheet-handle {
+      width: 36px; height: 4px;
+      background: var(--color-border);
+      border-radius: 2px;
+      margin: 0 auto 20px;
+    }
+    .sheet-title {
+      font-size: var(--text-lg);
+      font-weight: var(--weight-semi);
+      margin-bottom: 20px;
+      color: var(--color-ink);
+    }
+    .sheet-field { margin-bottom: 16px; }
+    .sheet-label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-semi);
+      letter-spacing: var(--tracking-widest);
+      text-transform: uppercase;
+      color: var(--color-ink-faint);
+      margin-bottom: 8px;
+      display: block;
+    }
+    .sheet-select, .sheet-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      background: var(--color-surface);
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+      color: var(--color-ink);
+      outline: none;
+      appearance: none;
+    }
+    .sheet-select:focus, .sheet-input:focus { border-color: var(--color-ink-faint); }
+    .day-picker {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .day-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      font-size: var(--text-sm); font-weight: var(--weight-semi);
+      color: var(--color-ink-soft); cursor: pointer;
+      transition: all var(--duration) var(--ease);
+      font-family: var(--font-body);
+    }
+    .day-btn.active {
+      background: var(--color-ink);
+      color: white;
+      border-color: var(--color-ink);
+    }
+    .sheet-save {
+      width: 100%; padding: 14px;
+      background: var(--color-accent);
+      color: white; border: none;
+      border-radius: var(--radius);
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+      font-weight: var(--weight-semi);
+      cursor: pointer; margin-top: 8px;
+    }
+    .sheet-save:active { opacity: 0.85; }
+    .custom-days-wrap { display: none; }
+    .custom-days-wrap.visible { display: block; }
+  </style>
 </head>
 <body>
 
@@ -47,7 +132,7 @@
     </div>
   </div>
 
-  <!-- REMINDERS -->
+  <!-- REMINDER -->
   <div class="settings-group">
     <div class="settings-group-label">Reminders</div>
     <div class="settings-list">
@@ -77,7 +162,7 @@
         </div>
         <div class="sr-body">
           <div class="sr-title">Only if not logged that day</div>
-          <div class="sr-desc">Reminders are skipped on days you've already logged. Powered by cron-job.org.</div>
+          <div class="sr-desc">Sent via Telegram only on days with no logs. Powered by cron-job.org.</div>
         </div>
       </div>
     </div>
@@ -93,7 +178,7 @@
         </div>
         <div class="sr-body">
           <div class="sr-title">Mike's preset</div>
-          <div class="sr-desc" id="mikePresetDisplay">Type 4 · Brown · No symptoms</div>
+          <div class="sr-desc" id="mikePresetDisplay">Soft · Brown · No symptoms</div>
         </div>
         <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
       </div>
@@ -103,7 +188,7 @@
         </div>
         <div class="sr-body">
           <div class="sr-title">Jenna's preset</div>
-          <div class="sr-desc" id="jennaPresetDisplay">Type 4 · Brown · No symptoms</div>
+          <div class="sr-desc" id="jennaPresetDisplay">Soft · Brown · No symptoms</div>
         </div>
         <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
       </div>
@@ -140,43 +225,7 @@
         </div>
         <div class="sr-body">
           <div class="sr-title">How to link</div>
-          <div class="sr-desc">Open the bot, send /start, tap your name. The bot remembers you forever.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- REMINDERS -->
-  <div class="settings-group">
-    <div class="settings-group-label">Daily Reminder</div>
-    <div class="settings-list">
-      <div class="settings-row" id="editMikeReminder">
-        <div class="sr-icon">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="sr-body">
-          <div class="sr-title">Mike's reminder time</div>
-          <div class="sr-desc" id="mikeReminderDisplay">8:00 PM · Melbourne (AEST)</div>
-        </div>
-        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-      </div>
-      <div class="settings-row" id="editJennaReminder">
-        <div class="sr-icon">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <div class="sr-body">
-          <div class="sr-title">Jenna's reminder time</div>
-          <div class="sr-desc" id="jennaReminderDisplay">8:00 PM · WITA (UTC+8)</div>
-        </div>
-        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
-      </div>
-      <div class="settings-row" style="cursor:default">
-        <div class="sr-icon">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        </div>
-        <div class="sr-body">
-          <div class="sr-title">Only if you haven't logged</div>
-          <div class="sr-desc">Reminders are sent via Telegram only on days with no logs. Powered by cron-job.org.</div>
+          <div class="sr-desc">Open the bot, send /start, tap your name. Done.</div>
         </div>
       </div>
     </div>
@@ -198,6 +247,7 @@
     </div>
   </div>
 
+  <div class="spacer-8"></div>
 </div>
 
 <!-- NAV -->
@@ -215,6 +265,43 @@
     <span>Settings</span>
   </a>
 </nav>
+
+<!-- REMINDER BOTTOM SHEET -->
+<div class="sheet-overlay" id="reminderSheet" onclick="closeSheetOutside(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sheetTitle">Mike's Reminder</div>
+
+    <div class="sheet-field">
+      <label class="sheet-label">Frequency</label>
+      <select class="sheet-select" id="sheetFrequency" onchange="onFrequencyChange()">
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly (Mondays)</option>
+        <option value="custom">Custom days</option>
+      </select>
+    </div>
+
+    <div class="sheet-field custom-days-wrap" id="customDaysWrap">
+      <label class="sheet-label">Days</label>
+      <div class="day-picker">
+        <button class="day-btn" data-day="1" onclick="toggleDay(this)">M</button>
+        <button class="day-btn" data-day="2" onclick="toggleDay(this)">T</button>
+        <button class="day-btn" data-day="3" onclick="toggleDay(this)">W</button>
+        <button class="day-btn" data-day="4" onclick="toggleDay(this)">T</button>
+        <button class="day-btn" data-day="5" onclick="toggleDay(this)">F</button>
+        <button class="day-btn" data-day="6" onclick="toggleDay(this)">S</button>
+        <button class="day-btn" data-day="7" onclick="toggleDay(this)">S</button>
+      </div>
+    </div>
+
+    <div class="sheet-field">
+      <label class="sheet-label">Time (local time)</label>
+      <input class="sheet-input" type="time" id="sheetTime" value="20:00">
+    </div>
+
+    <button class="sheet-save" onclick="saveReminder()">Save</button>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
