@@ -3,12 +3,12 @@
 // Reads and writes settings to Firestore.
 // ============================================================
 
-import { db } from "/public/js/firebase.js";
+import { db } from "/js/firebase.js";
 import {
-  doc, getDoc, setDoc, updateDoc
+  doc, getDoc, setDoc, updateDoc, getDocs, collection
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-import { $, showToast, BRISTOL, STOOL_COLORS } from "/public/js/utils.js";
+import { $, showToast, BRISTOL, STOOL_COLORS } from "/js/utils.js";
 
 
 // ── DEFAULTS ──
@@ -43,10 +43,25 @@ document.addEventListener("DOMContentLoaded", async () => {
 // ── LOAD ──
 async function loadSettings() {
   try {
+    // Load config settings
     const snap = await getDoc(doc(db, "config", "settings"));
     if (snap.exists()) {
       settings = { ...DEFAULTS, ...snap.data() };
     }
+
+    // Load Telegram link status from users collection
+    const mikeSnap  = await getDoc(doc(db, "users", "mike"));
+    const jennaSnap = await getDoc(doc(db, "users", "jenna"));
+
+    if (mikeSnap.exists()) {
+      settings.mike.telegramLinked   = true;
+      settings.mike.telegramUsername = mikeSnap.data().telegramUsername || null;
+    }
+    if (jennaSnap.exists()) {
+      settings.jenna.telegramLinked   = true;
+      settings.jenna.telegramUsername = jennaSnap.data().telegramUsername || null;
+    }
+
   } catch (err) {
     console.error("Failed to load settings:", err);
   }
@@ -70,8 +85,8 @@ function renderSettings() {
   if (jp) $("#jennaPresetDisplay").textContent = formatPreset(jp);
 
   // Telegram status
-  const mikeLinked  = settings.mike?.telegramId;
-  const jennaLinked = settings.jenna?.telegramId;
+  const mikeLinked  = settings.mike?.telegramLinked;
+  const jennaLinked = settings.jenna?.telegramLinked;
 
   $("#mikeTelegramDisplay").textContent  = mikeLinked  ? `@${settings.mike.telegramUsername  || "linked"}` : "Not linked — use /start in bot";
   $("#jennaTelegramDisplay").textContent = jennaLinked ? `@${settings.jenna.telegramUsername || "linked"}` : "Not linked — use /start in bot";
@@ -80,8 +95,8 @@ function renderSettings() {
   const jennaStatus = $("#jennaTelegramStatus");
   mikeStatus.textContent  = mikeLinked  ? "Linked" : "—";
   jennaStatus.textContent = jennaLinked ? "Linked" : "—";
-  mikeStatus.style.color  = mikeLinked  ? "var(--color-good)"     : "var(--color-ink-faint)";
-  jennaStatus.style.color = jennaLinked ? "var(--color-good)"     : "var(--color-ink-faint)";
+  mikeStatus.style.color  = mikeLinked  ? "var(--color-good)" : "var(--color-ink-faint)";
+  jennaStatus.style.color = jennaLinked ? "var(--color-good)" : "var(--color-ink-faint)";
 }
 
 function formatPreset(preset) {
