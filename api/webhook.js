@@ -360,17 +360,27 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 // ── SAVE LOG ──
 async function saveLog(chatId, data, msgId) {
   data.timestamp = Timestamp.now();
-  if (!data.notes) data.notes = "";
+  if (!data.notes)    data.notes    = "";
+  if (!data.symptoms) data.symptoms = ["none"];
+  if (!data.color)    data.color    = "brown";
 
   try {
     await db.collection("logs").add(data);
-    const b     = BRISTOL[data.bristolType];
-    const syms  = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.join(", ");
+    const b    = BRISTOL[data.bristolType];
+    const syms = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.join(", ");
+    const label = b ? b.emoji : `T${data.bristolType}`;
 
-    await editMsg(chatId, msgId,
-      `${b.emoji} *Logged!*\n\nType ${data.bristolType} · ${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`,
-      null, { parse_mode: "Markdown" }
-    );
+    if (msgId) {
+      await editMsg(chatId, msgId,
+        `${label} *Logged!*\n\n${b?.desc || ""}\n${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`,
+        null, { parse_mode: "Markdown" }
+      );
+    } else {
+      await sendMsg(chatId,
+        `${label} *Logged!*\n\n${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`,
+        null, { parse_mode: "Markdown" }
+      );
+    }
   } catch (err) {
     console.error(err);
     await sendMsg(chatId, "Failed to save log. Try again.");
