@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>mjpt — Settings</title>
-  <link rel="icon" href="/public/assets/favicon.ico">
-  <link rel="stylesheet" href="/public/css/tokens.css">
-  <link rel="stylesheet" href="/public/css/base.css">
-  <link rel="stylesheet" href="/public/css/components.css">
-  <link rel="stylesheet" href="/public/css/pages.css">
+  <link rel="icon" href="/assets/favicon.ico">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/pages.css">
 </head>
 <body>
 
@@ -49,7 +49,7 @@
 
   <!-- REMINDERS -->
   <div class="settings-group">
-    <div class="settings-group-label">Daily Reminder</div>
+    <div class="settings-group-label">Reminders</div>
     <div class="settings-list">
       <div class="settings-row" id="editMikeReminder">
         <div class="sr-icon">
@@ -57,7 +57,7 @@
         </div>
         <div class="sr-body">
           <div class="sr-title">Mike's reminder</div>
-          <div class="sr-desc" id="mikeReminderDisplay">8:00 PM · Melbourne (AEST)</div>
+          <div class="sr-desc" id="mikeReminderDisplay">Daily · 20:00 · Melbourne</div>
         </div>
         <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
       </div>
@@ -67,9 +67,18 @@
         </div>
         <div class="sr-body">
           <div class="sr-title">Jenna's reminder</div>
-          <div class="sr-desc" id="jennaReminderDisplay">8:00 PM · WITA (UTC+8)</div>
+          <div class="sr-desc" id="jennaReminderDisplay">Daily · 20:00 · WITA</div>
         </div>
         <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      </div>
+      <div class="settings-row" style="cursor:default">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Only if not logged that day</div>
+          <div class="sr-desc">Reminders are skipped on days you've already logged. Powered by cron-job.org.</div>
+        </div>
       </div>
     </div>
   </div>
@@ -209,6 +218,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="/public/js/settings.js"></script>
+<script type="module" src="/js/settings.js"></script>
 </body>
 </html>
