@@ -6,11 +6,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>mjpt</title>
-  <link rel="icon" href="/public/assets/favicon.ico">
-  <link rel="stylesheet" href="/public/css/tokens.css">
-  <link rel="stylesheet" href="/public/css/base.css">
-  <link rel="stylesheet" href="/public/css/components.css">
-  <link rel="stylesheet" href="/public/css/pages.css">
+  <link rel="icon" href="/assets/favicon.ico">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/pages.css">
 </head>
 <body>
 
@@ -65,9 +65,9 @@
     </div>
     <div class="sh-body">
       <div class="sh-label">Gut Health Score</div>
-      <div class="sh-title" id="scoreLabel">Loading</div>
+      <div class="sh-title" id="scoreLabel"><span class="skeleton" style="display:inline-block;width:80px;height:20px;border-radius:6px">&nbsp;</span></div>
       <div class="sh-sub">Based on consistency, frequency &amp; symptoms.</div>
-      <div class="sh-badge" id="scoreBadge">&nbsp;</div>
+      <div class="sh-badge" id="scoreBadge"><span class="skeleton" style="display:inline-block;width:140px;height:16px;border-radius:100px">&nbsp;</span></div>
     </div>
   </div>
 
@@ -75,27 +75,27 @@
   <div class="stat-grid fade-in fade-in-delay-1">
     <div class="stat-tile">
       <div class="st-label">Total logs</div>
-      <div class="st-val" id="statTotal">—</div>
+      <div class="st-val" id="statTotal"><span class="skeleton" style="display:inline-block;width:40px;height:28px;border-radius:6px">&nbsp;</span></div>
       <div class="st-sub" id="statTotalSub">this period</div>
       <div class="st-badge"><span class="badge badge-neutral" id="statTotalBadge">&nbsp;</span></div>
     </div>
     <div class="stat-tile">
       <div class="st-label">Daily avg</div>
-      <div class="st-val" id="statAvg">—</div>
+      <div class="st-val" id="statAvg"><span class="skeleton" style="display:inline-block;width:40px;height:28px;border-radius:6px">&nbsp;</span></div>
       <div class="st-sub">per day</div>
-      <div class="st-badge"><span class="badge badge-good" id="statAvgBadge">Normal</span></div>
+      <div class="st-badge"><span class="badge badge-neutral" id="statAvgBadge">&nbsp;</span></div>
     </div>
     <div class="stat-tile">
       <div class="st-label">Top Bristol</div>
-      <div class="st-val" id="statBristol">—</div>
+      <div class="st-val" id="statBristol"><span class="skeleton" style="display:inline-block;width:60px;height:28px;border-radius:6px">&nbsp;</span></div>
       <div class="st-sub" id="statBristolSub">most frequent</div>
-      <div class="st-badge"><span class="badge" id="statBristolBadge">&nbsp;</span></div>
+      <div class="st-badge"><span class="badge badge-neutral" id="statBristolBadge">&nbsp;</span></div>
     </div>
     <div class="stat-tile">
       <div class="st-label">Symptom rate</div>
-      <div class="st-val" id="statSymptom">—</div>
+      <div class="st-val" id="statSymptom"><span class="skeleton" style="display:inline-block;width:40px;height:28px;border-radius:6px">&nbsp;</span></div>
       <div class="st-sub">of logs flagged</div>
-      <div class="st-badge"><span class="badge" id="statSymptomBadge">&nbsp;</span></div>
+      <div class="st-badge"><span class="badge badge-neutral" id="statSymptomBadge">&nbsp;</span></div>
     </div>
   </div>
 
@@ -181,6 +181,6 @@
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<script type="module" src="/public/js/insights.js"></script>
+<script type="module" src="/js/insights.js"></script>
 </body>
 </html>
