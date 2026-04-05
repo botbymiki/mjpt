@@ -128,13 +128,13 @@ function buildCard(user, period, logs) {
       <div style="font-size:26px;color:white;letter-spacing:-0.5px;line-height:1.1;margin-bottom:3px">${userName}'s Report</div>
       <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:24px;font-family:'Helvetica Neue',sans-serif">mjpt · Mike & Jenna Poop Tracker</div>
 
-      <!-- Big number — separate from label, no overlap -->
+      <!-- Big number -->
       <div style="margin-bottom:20px">
-        <div style="display:flex;align-items:baseline;gap:8px">
-          <div style="font-size:60px;color:white;line-height:1;letter-spacing:-3px">${total}</div>
-          <div style="font-size:16px;color:rgba(255,255,255,0.4);font-family:'Helvetica Neue',sans-serif;font-weight:300">logs</div>
+        <div style="line-height:1;margin-bottom:4px">
+          <span style="font-size:56px;color:white;letter-spacing:-2px;font-family:Georgia,serif;vertical-align:baseline">${total}</span>
+          <span style="font-size:15px;color:rgba(255,255,255,0.4);font-family:'Helvetica Neue',sans-serif;font-weight:300;margin-left:6px;vertical-align:baseline">logs</span>
         </div>
-        <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,0.25);margin-top:4px;font-family:'Helvetica Neue',sans-serif">Total this period</div>
+        <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,0.25);font-family:'Helvetica Neue',sans-serif">Total this period</div>
       </div>
 
       <!-- Divider -->
