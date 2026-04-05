@@ -1,244 +1,310 @@
-// ============================================================
-// MJPT — Settings Page
-// Reads and writes settings to Firestore.
-// ============================================================
-
-import { db } from "/js/firebase.js";
-import {
-  doc, getDoc, setDoc, updateDoc, getDocs, collection
-} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
-
-import { $, showToast, BRISTOL, STOOL_COLORS } from "/js/utils.js";
-
-
-// ── DEFAULTS ──
-const DEFAULTS = {
-  mike: {
-    name:          "Mike",
-    reminderTime:  "20:00",
-    reminderTz:    "Australia/Melbourne",
-    preset: { bristolType: 4, color: "brown", symptoms: ["none"] }
-  },
-  jenna: {
-    name:          "Jenna",
-    reminderTime:  "20:00",
-    reminderTz:    "Asia/Makassar",
-    preset: { bristolType: 4, color: "brown", symptoms: ["none"] }
-  }
-};
-
-
-// ── STATE ──
-let settings = structuredClone(DEFAULTS);
-
-
-// ── INIT ──
-document.addEventListener("DOMContentLoaded", async () => {
-  await loadSettings();
-  renderSettings();
-  bindActions();
-});
-
-
-// ── LOAD ──
-async function loadSettings() {
-  try {
-    // Load config settings
-    const snap = await getDoc(doc(db, "config", "settings"));
-    if (snap.exists()) {
-      settings = { ...DEFAULTS, ...snap.data() };
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>mjpt — Settings</title>
+  <link rel="icon" href="/assets/favicon.ico">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/pages.css">
+  <style>
+    /* ── BOTTOM SHEET ── */
+    .sheet-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 200;
+      align-items: flex-end;
+      backdrop-filter: blur(3px);
     }
-
-    // Load Telegram link status from users collection
-    const mikeSnap  = await getDoc(doc(db, "users", "mike"));
-    const jennaSnap = await getDoc(doc(db, "users", "jenna"));
-
-    if (mikeSnap.exists()) {
-      settings.mike.telegramLinked   = true;
-      settings.mike.telegramUsername = mikeSnap.data().telegramUsername || null;
+    .sheet-overlay.open { display: flex; }
+    .sheet {
+      background: var(--color-bg);
+      border-radius: 24px 24px 0 0;
+      width: 100%; padding: 12px 20px 48px;
+      animation: slideUp 0.25s ease;
+      max-height: 80vh; overflow-y: auto;
     }
-    if (jennaSnap.exists()) {
-      settings.jenna.telegramLinked   = true;
-      settings.jenna.telegramUsername = jennaSnap.data().telegramUsername || null;
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    .sheet-handle {
+      width: 36px; height: 4px;
+      background: var(--color-border);
+      border-radius: 2px;
+      margin: 0 auto 20px;
     }
-
-  } catch (err) {
-    console.error("Failed to load settings:", err);
-  }
-}
-
-
-// ── RENDER ──
-function renderSettings() {
-  // Names
-  $("#mikeNameDisplay").textContent  = settings.mike?.name  || "Mike";
-  $("#jennaNameDisplay").textContent = settings.jenna?.name || "Jenna";
-
-  // Reminders
-  const mikeR  = settings.mike?.reminder  || { time: "20:00", frequency: "daily" };
-  const jennaR = settings.jenna?.reminder || { time: "20:00", frequency: "daily" };
-  const dayNames = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-  const formatReminder = (r, tz) => {
-    if (r.frequency === "custom" && r.days?.length) {
-      return `${r.days.map(d => dayNames[d]).join("/")} · ${r.time} · ${tz}`;
+    .sheet-title {
+      font-size: var(--text-lg);
+      font-weight: var(--weight-semi);
+      margin-bottom: 20px;
+      color: var(--color-ink);
     }
-    if (r.frequency === "weekly") return `Weekly · ${r.time} · ${tz}`;
-    return `Daily · ${r.time} · ${tz}`;
-  };
+    .sheet-field { margin-bottom: 16px; }
+    .sheet-label {
+      font-size: var(--text-xs);
+      font-weight: var(--weight-semi);
+      letter-spacing: var(--tracking-widest);
+      text-transform: uppercase;
+      color: var(--color-ink-faint);
+      margin-bottom: 8px;
+      display: block;
+    }
+    .sheet-select, .sheet-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      background: var(--color-surface);
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+      color: var(--color-ink);
+      outline: none;
+      appearance: none;
+    }
+    .sheet-select:focus, .sheet-input:focus { border-color: var(--color-ink-faint); }
+    .day-picker {
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .day-btn {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      font-size: var(--text-sm); font-weight: var(--weight-semi);
+      color: var(--color-ink-soft); cursor: pointer;
+      transition: all var(--duration) var(--ease);
+      font-family: var(--font-body);
+    }
+    .day-btn.active {
+      background: var(--color-ink);
+      color: white;
+      border-color: var(--color-ink);
+    }
+    .sheet-save {
+      width: 100%; padding: 14px;
+      background: var(--color-accent);
+      color: white; border: none;
+      border-radius: var(--radius);
+      font-family: var(--font-body);
+      font-size: var(--text-base);
+      font-weight: var(--weight-semi);
+      cursor: pointer; margin-top: 8px;
+    }
+    .sheet-save:active { opacity: 0.85; }
+    .custom-days-wrap { display: none; }
+    .custom-days-wrap.visible { display: block; }
+  </style>
+</head>
+<body>
 
-  const mikeReminderEl  = document.getElementById("mikeReminderDisplay");
-  const jennaReminderEl = document.getElementById("jennaReminderDisplay");
-  if (mikeReminderEl)  mikeReminderEl.textContent  = formatReminder(mikeR,  "Melbourne");
-  if (jennaReminderEl) jennaReminderEl.textContent = formatReminder(jennaR, "WITA");
+<div class="page">
 
-  // Presets
-  const mp = settings.mike?.preset;
-  const jp = settings.jenna?.preset;
-  if (mp) $("#mikePresetDisplay").textContent  = formatPreset(mp);
-  if (jp) $("#jennaPresetDisplay").textContent = formatPreset(jp);
+  <div class="page-header">
+    <div class="page-title">Settings</div>
+    <div class="page-sub">Preferences &amp; configuration</div>
+  </div>
 
-  // Telegram status
-  const mikeLinked  = settings.mike?.telegramLinked;
-  const jennaLinked = settings.jenna?.telegramLinked;
+  <!-- USERS -->
+  <div class="settings-group">
+    <div class="settings-group-label">Users</div>
+    <div class="settings-list">
+      <div class="settings-row" id="editMikeName">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">User 1 Name</div>
+          <div class="sr-desc" id="mikeNameDisplay">Mike</div>
+        </div>
+        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      </div>
+      <div class="settings-row" id="editJennaName">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">User 2 Name</div>
+          <div class="sr-desc" id="jennaNameDisplay">Jenna</div>
+        </div>
+        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      </div>
+    </div>
+  </div>
 
-  $("#mikeTelegramDisplay").textContent  = mikeLinked  ? `@${settings.mike.telegramUsername  || "linked"}` : "Not linked — use /start in bot";
-  $("#jennaTelegramDisplay").textContent = jennaLinked ? `@${settings.jenna.telegramUsername || "linked"}` : "Not linked — use /start in bot";
+  <!-- REMINDER -->
+  <div class="settings-group">
+    <div class="settings-group-label">Reminders</div>
+    <div class="settings-list">
+      <div class="settings-row" id="editMikeReminder">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Mike's reminder</div>
+          <div class="sr-desc" id="mikeReminderDisplay">Daily · 20:00 · Melbourne</div>
+        </div>
+        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      </div>
+      <div class="settings-row" id="editJennaReminder">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Jenna's reminder</div>
+          <div class="sr-desc" id="jennaReminderDisplay">Daily · 20:00 · WITA</div>
+        </div>
+        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      </div>
+      <div class="settings-row" style="cursor:default">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Only if not logged that day</div>
+          <div class="sr-desc">Sent via Telegram only on days with no logs. Powered by cron-job.org.</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  const mikeStatus  = $("#mikeTelegramStatus");
-  const jennaStatus = $("#jennaTelegramStatus");
-  mikeStatus.textContent  = mikeLinked  ? "Linked" : "—";
-  jennaStatus.textContent = jennaLinked ? "Linked" : "—";
-  mikeStatus.style.color  = mikeLinked  ? "var(--color-good)" : "var(--color-ink-faint)";
-  jennaStatus.style.color = jennaLinked ? "var(--color-good)" : "var(--color-ink-faint)";
-}
+  <!-- PRESETS -->
+  <div class="settings-group">
+    <div class="settings-group-label">Quick Log Presets</div>
+    <div class="settings-list">
+      <div class="settings-row" id="editMikePreset">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Mike's preset</div>
+          <div class="sr-desc" id="mikePresetDisplay">Soft · Brown · No symptoms</div>
+        </div>
+        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      </div>
+      <div class="settings-row" id="editJennaPreset">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Jenna's preset</div>
+          <div class="sr-desc" id="jennaPresetDisplay">Soft · Brown · No symptoms</div>
+        </div>
+        <div class="sr-chevron"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></div>
+      </div>
+    </div>
+  </div>
 
-function formatPreset(preset) {
-  const b        = BRISTOL[preset.bristolType];
-  const bristol  = b?.label || `Type ${preset.bristolType}`;
-  const color    = STOOL_COLORS[preset.color]?.label || "Brown";
-  const symptoms = preset.symptoms?.includes("none") ? "No symptoms" : preset.symptoms?.join(", ") || "No symptoms";
-  return `${bristol} · ${color} · ${symptoms}`;
-}
+  <!-- TELEGRAM -->
+  <div class="settings-group">
+    <div class="settings-group-label">Telegram Bot</div>
+    <div class="settings-list">
+      <div class="settings-row" style="cursor:default">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><path d="M21 5L2 12.5l7 1M21 5l-2.5 15L9 13.5M21 5L9 13.5m0 0v5.5l3.5-3"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Mike's Telegram</div>
+          <div class="sr-desc" id="mikeTelegramDisplay">Send /start to the bot to link</div>
+        </div>
+        <div class="sr-right" id="mikeTelegramStatus" style="color:var(--color-ink-faint)">—</div>
+      </div>
+      <div class="settings-row" style="cursor:default">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><path d="M21 5L2 12.5l7 1M21 5l-2.5 15L9 13.5M21 5L9 13.5m0 0v5.5l3.5-3"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">Jenna's Telegram</div>
+          <div class="sr-desc" id="jennaTelegramDisplay">Send /start to the bot to link</div>
+        </div>
+        <div class="sr-right" id="jennaTelegramStatus" style="color:var(--color-ink-faint)">—</div>
+      </div>
+      <div class="settings-row" style="cursor:default">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">How to link</div>
+          <div class="sr-desc">Open the bot, send /start, tap your name. Done.</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
+  <!-- ABOUT -->
+  <div class="settings-group">
+    <div class="settings-group-label">About</div>
+    <div class="settings-list">
+      <div class="settings-row" style="cursor:default">
+        <div class="sr-icon">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="sr-body">
+          <div class="sr-title">mjpt</div>
+          <div class="sr-desc">Mike &amp; Jenna Poop Tracker · v1.0</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-// ── BIND ACTIONS ──
-function bindActions() {
-  const safe = (id, fn) => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener("click", fn);
-  };
+  <div class="spacer-8"></div>
+</div>
 
-  safe("editMikeName",     () => editName("mike"));
-  safe("editJennaName",    () => editName("jenna"));
-  safe("editMikeReminder", () => editReminder("mike"));
-  safe("editJennaReminder",() => editReminder("jenna"));
-  safe("editMikePreset",   () => editPreset("mike"));
-  safe("editJennaPreset",  () => editPreset("jenna"));
-}
+<!-- NAV -->
+<nav class="nav">
+  <a class="nav-btn" href="/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    <span>Insights</span>
+  </a>
+  <a class="nav-btn" href="/feed">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+    <span>Feed</span>
+  </a>
+  <a class="nav-btn active" href="/settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <span>Settings</span>
+  </a>
+</nav>
 
+<!-- REMINDER BOTTOM SHEET -->
+<div class="sheet-overlay" id="reminderSheet" onclick="closeSheetOutside(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sheetTitle">Mike's Reminder</div>
 
-// ── EDIT NAME ──
-async function editName(user) {
-  const current = settings[user]?.name || (user === "mike" ? "Mike" : "Jenna");
-  const name    = prompt(`Enter ${current}'s display name:`, current);
-  if (!name || name.trim() === current) return;
+    <div class="sheet-field">
+      <label class="sheet-label">Frequency</label>
+      <select class="sheet-select" id="sheetFrequency" onchange="onFrequencyChange()">
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly (Mondays)</option>
+        <option value="custom">Custom days</option>
+      </select>
+    </div>
 
-  settings[user].name = name.trim();
-  await saveSettings();
-  renderSettings();
-  showToast("Name updated");
-}
+    <div class="sheet-field custom-days-wrap" id="customDaysWrap">
+      <label class="sheet-label">Days</label>
+      <div class="day-picker">
+        <button class="day-btn" data-day="1" onclick="toggleDay(this)">M</button>
+        <button class="day-btn" data-day="2" onclick="toggleDay(this)">T</button>
+        <button class="day-btn" data-day="3" onclick="toggleDay(this)">W</button>
+        <button class="day-btn" data-day="4" onclick="toggleDay(this)">T</button>
+        <button class="day-btn" data-day="5" onclick="toggleDay(this)">F</button>
+        <button class="day-btn" data-day="6" onclick="toggleDay(this)">S</button>
+        <button class="day-btn" data-day="7" onclick="toggleDay(this)">S</button>
+      </div>
+    </div>
 
+    <div class="sheet-field">
+      <label class="sheet-label">Time (local time)</label>
+      <input class="sheet-input" type="time" id="sheetTime" value="20:00">
+    </div>
 
-// ── EDIT REMINDER ──
-async function editReminder(user) {
-  const name    = settings[user]?.name || user;
-  const current = settings[user]?.reminder || { time: "20:00", frequency: "daily", days: [] };
+    <button class="sheet-save" onclick="saveReminder()">Save</button>
+  </div>
+</div>
 
-  // Step 1 — frequency
-  const freqInput = prompt(
-    `${name}'s reminder frequency:\nType: daily, weekly, or custom`,
-    current.frequency || "daily"
-  );
-  if (!freqInput) return;
-  const frequency = freqInput.trim().toLowerCase();
-  if (!["daily", "weekly", "custom"].includes(frequency)) {
-    showToast("Invalid. Use: daily, weekly, or custom");
-    return;
-  }
+<div class="toast" id="toast"></div>
 
-  // Step 2 — custom days
-  let days = current.days || [];
-  if (frequency === "custom") {
-    const daysInput = prompt(
-      `Which days? Enter numbers separated by commas:\n1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat 7=Sun\nExample: 1,3,5 for Mon/Wed/Fri`,
-      days.join(",") || "1,2,3,4,5"
-    );
-    if (!daysInput) return;
-    days = daysInput.split(",").map(d => parseInt(d.trim())).filter(d => d >= 1 && d <= 7);
-  } else if (frequency === "weekly") {
-    days = [1]; // Monday by default for weekly
-  }
-
-  // Step 3 — time
-  const timeInput = prompt(
-    `${name}'s reminder time (HH:MM in their local time):`,
-    current.time || "20:00"
-  );
-  if (!timeInput || !/^\d{2}:\d{2}$/.test(timeInput)) {
-    if (timeInput) showToast("Invalid time. Use HH:MM format");
-    return;
-  }
-
-  settings[user].reminder = { time: timeInput, frequency, days };
-  await saveSettings();
-  renderSettings();
-  showToast(`${name}'s reminder updated`);
-}
-
-
-// ── EDIT PRESET ──
-async function editPreset(user) {
-  const name    = settings[user]?.name || user;
-  const current = settings[user]?.preset || { bristolType: 4, color: "brown", symptoms: ["none"] };
-
-  // Bristol type
-  const typeInput = prompt(
-    `${name}'s default Bristol type (1–7):`,
-    current.bristolType
-  );
-  if (!typeInput) return;
-  const bristolType = parseInt(typeInput);
-  if (bristolType < 1 || bristolType > 7 || isNaN(bristolType)) {
-    showToast("Invalid Bristol type. Enter 1–7.");
-    return;
-  }
-
-  // Color
-  const colorOptions = Object.keys(STOOL_COLORS).join(", ");
-  const color        = prompt(
-    `${name}'s default color (${colorOptions}):`,
-    current.color
-  );
-  if (!color || !STOOL_COLORS[color]) {
-    if (color) showToast("Invalid color");
-    return;
-  }
-
-  settings[user].preset = { bristolType, color, symptoms: ["none"] };
-  await saveSettings();
-  renderSettings();
-  showToast("Preset updated");
-}
-
-
-// ── SAVE ──
-async function saveSettings() {
-  try {
-    await setDoc(doc(db, "config", "settings"), settings, { merge: true });
-  } catch (err) {
-    console.error("Failed to save settings:", err);
-    showToast("Failed to save — check connection");
-  }
-}
+<script type="module" src="/js/settings.js"></script>
+</body>
+</html>
