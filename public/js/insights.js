@@ -3,7 +3,7 @@
 // Fetches logs from Firestore and renders all dashboard data.
 // ============================================================
 
-import { db } from "/public/js/firebase.js";
+import { db } from "/js/firebase.js";
 import {
   collection, query, where, orderBy, getDocs, Timestamp
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
@@ -13,7 +13,7 @@ import {
   getPeriodRange, calcGutScore, scoreLabel, scoreRingOffset,
   calcBristolDist, calcSymptomFreq, calcPeakTimes, calcDailyFreq,
   getFunTitle, bristolClass, bristolBadgeText, BRISTOL, USERS
-} from "/public/js/utils.js";
+} from "/js/utils.js";
 
 
 // ── STATE ──
@@ -38,12 +38,12 @@ function initShareBtn() {
   if (!btn) return;
   btn.addEventListener("click", async () => {
     const { generateReport } = await import("/js/report.js");
-    btn.textContent = "Generating...";
-    btn.disabled    = true;
-    const logs      = filterLogs();
-    const ok        = await generateReport(currentUser, currentPeriod, allLogs);
-    btn.textContent = "Share";
-    btn.disabled    = false;
+    btn.innerHTML = "Generating...";
+    btn.disabled  = true;
+    const logs    = filterLogs();
+    const ok      = await generateReport(currentUser, currentPeriod, allLogs);
+    btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> Share`;
+    btn.disabled  = false;
     if (!ok) showToast("Failed to generate image");
   });
 }
@@ -176,9 +176,11 @@ function renderStats(logs) {
   // Top Bristol
   const bristolCounts = {};
   logs.forEach(l => {
+    if (!l.bristolType) return; // skip logs with no bristolType
     bristolCounts[l.bristolType] = (bristolCounts[l.bristolType] || 0) + 1;
   });
-  const topBristol = Object.entries(bristolCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topBristolEntry = Object.entries(bristolCounts).sort((a, b) => b[1] - a[1])[0];
+  const topBristol      = topBristolEntry ? parseInt(topBristolEntry[0]) : null;
 
   // Symptom rate
   const withSymptoms = logs.filter(l => l.symptoms && !l.symptoms.includes("none") && l.symptoms.length > 0).length;
@@ -189,12 +191,12 @@ function renderStats(logs) {
   $("#statAvg").textContent   = avg;
 
   if (topBristol) {
-    const b    = BRISTOL[parseInt(topBristol)];
+    const b    = BRISTOL[topBristol];
     $("#statBristol").textContent    = b?.label || `T${topBristol}`;
     $("#statBristolSub").textContent = b?.desc  || "most frequent";
-    const cls     = bristolClass(parseInt(topBristol));
+    const cls     = bristolClass(topBristol);
     const badgeEl = $("#statBristolBadge");
-    badgeEl.textContent = parseInt(topBristol) === 4 ? "The Dream" : b?.label || "—";
+    badgeEl.textContent = topBristol === 4 ? "The Dream" : b?.label || "—";
     badgeEl.className   = `badge badge-${cls}`;
   }
 
