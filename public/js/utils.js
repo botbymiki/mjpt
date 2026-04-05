@@ -206,7 +206,7 @@ export function scoreLabel(score) {
   return               { label: "Poor",   class: "danger" };
 }
 
-export function scoreRingOffset(score, r = 35) {
+export function scoreRingOffset(score, r = 40) {
   const circumference = 2 * Math.PI * r;
   return circumference - (score / 100) * circumference;
 }
