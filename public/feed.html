@@ -1,143 +1,64 @@
-// ============================================================
-// MJPT — Feed Page
-// Loads and renders chronological log history with filters.
-// ============================================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>mjpt — Feed</title>
+  <link rel="icon" href="/assets/favicon.ico">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/pages.css">
+</head>
+<body>
 
-import { db } from "/js/firebase.js";
-import {
-  collection, query, orderBy, getDocs, deleteDoc, doc
-} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+<div class="page">
 
-import {
-  $, $$, showToast, relativeDate, formatTime,
-  BRISTOL, STOOL_COLORS, formatSymptoms, USERS
-} from "/js/utils.js";
-
-
-// ── STATE ──
-let allLogs     = [];
-let activeFilter = "all";
-
-
-// ── INIT ──
-document.addEventListener("DOMContentLoaded", async () => {
-  initFilters();
-  await loadLogs();
-  renderFeed();
-});
-
-
-// ── FILTERS ──
-function initFilters() {
-  const row = document.querySelector(".filter-row");
-  row.addEventListener("click", e => {
-    const chip = e.target.closest(".filter-chip");
-    if (!chip) return;
-    row.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
-    chip.classList.add("active");
-    activeFilter = chip.dataset.filter;
-    renderFeed();
-  });
-}
-
-
-// ── LOAD ──
-async function loadLogs() {
-  try {
-    const q    = query(collection(db, "logs"), orderBy("timestamp", "desc"));
-    const snap = await getDocs(q);
-    allLogs    = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (err) {
-    console.error(err);
-    showToast("Failed to load logs");
-  }
-}
-
-
-// ── FILTER ──
-function filterLogs() {
-  switch (activeFilter) {
-    case "mike":     return allLogs.filter(l => l.user === "mike");
-    case "jenna":    return allLogs.filter(l => l.user === "jenna");
-    case "symptoms": return allLogs.filter(l => l.symptoms && !l.symptoms.includes("none") && l.symptoms.length > 0);
-    case "type4":    return allLogs.filter(l => l.bristolType === 4);
-    default:         return allLogs;
-  }
-}
-
-
-// ── RENDER ──
-function renderFeed() {
-  const container = $("#feedList");
-  const logs      = filterLogs();
-
-  $("#feedCount").textContent = `${logs.length} log${logs.length !== 1 ? "s" : ""}`;
-
-  if (logs.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
-        <p>No logs found. Start logging via the Telegram bot.</p>
-      </div>`;
-    return;
-  }
-
-  // Group by date
-  const groups = {};
-  logs.forEach(log => {
-    const key = relativeDate(log.timestamp);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(log);
-  });
-
-  container.innerHTML = "";
-
-  Object.entries(groups).forEach(([date, dateLogs]) => {
-    // Date divider
-    const divider = document.createElement("div");
-    divider.className = "date-divider";
-    divider.textContent = date;
-    container.appendChild(divider);
-
-    // List
-    const list = document.createElement("div");
-    list.className = "history-list";
-
-    dateLogs.forEach(log => {
-      const item = buildLogItem(log);
-      list.appendChild(item);
-    });
-
-    container.appendChild(list);
-  });
-}
-
-
-// ── BUILD LOG ITEM ──
-function buildLogItem(log) {
-  const bristol  = BRISTOL[log.bristolType] || BRISTOL[4];
-  const color    = STOOL_COLORS[log.color]?.hex || "#8B4513";
-  const time     = formatTime(log.timestamp);
-  const user     = USERS[log.user] || USERS.mike;
-  const symptoms = formatSymptoms(log.symptoms);
-
-  const item = document.createElement("div");
-  item.className = "history-item";
-  item.innerHTML = `
-    <div class="hi-dot" style="background:${color}"></div>
-    <div class="hi-body">
-      <div class="hi-who ${log.user}">${user.name}</div>
-      <div class="hi-desc">${bristol.label} · ${STOOL_COLORS[log.color]?.label || "Brown"} · ${symptoms}</div>
-      ${log.notes ? `<div class="hi-meta" style="color:var(--color-ink-soft);font-style:italic">"${log.notes}"</div>` : `<div class="hi-meta">${log.source === "import" ? "Imported" : "Via Telegram"} ${log.quick ? "· Quick log" : ""}</div>`}
+  <!-- HEADER -->
+  <div class="feed-header-row">
+    <div>
+      <div class="page-title">Feed</div>
+      <div class="page-sub">All logs, chronological</div>
     </div>
-    <div class="hi-right">
-      <div class="hi-time">${time}</div>
-      <div class="hi-type">${bristol.label}</div>
-    </div>
-  `;
+    <div class="feed-count" id="feedCount">— logs</div>
+  </div>
 
-  return item;
-}
+  <!-- FILTERS -->
+  <div class="filter-row">
+    <button class="filter-chip active" data-filter="all">All</button>
+    <button class="filter-chip" data-filter="mike">Mike</button>
+    <button class="filter-chip" data-filter="jenna">Jenna</button>
+    <button class="filter-chip" data-filter="symptoms">With symptoms</button>
+    <button class="filter-chip" data-filter="type4">Type 4</button>
+  </div>
 
+  <!-- LOG LIST -->
+  <div id="feedList">
+    <!-- Rendered by JS -->
+  </div>
 
-// Delete is admin-only. See /api/admin?key=YOUR_KEY
+  <div class="spacer-8"></div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <a class="nav-btn" href="/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    <span>Insights</span>
+  </a>
+  <a class="nav-btn active" href="/feed">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/></svg>
+    <span>Feed</span>
+  </a>
+  <a class="nav-btn" href="/settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    <span>Settings</span>
+  </a>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="/js/feed.js"></script>
+</body>
+</html>
