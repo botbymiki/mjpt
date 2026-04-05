@@ -3,7 +3,7 @@
 // Fetches logs from Firestore and renders all dashboard data.
 // ============================================================
 
-import { db } from "/js/firebase.js";
+import { db } from "/public/js/firebase.js";
 import {
   collection, query, where, orderBy, getDocs, Timestamp
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
@@ -13,7 +13,7 @@ import {
   getPeriodRange, calcGutScore, scoreLabel, scoreRingOffset,
   calcBristolDist, calcSymptomFreq, calcPeakTimes, calcDailyFreq,
   getFunTitle, bristolClass, bristolBadgeText, BRISTOL, USERS
-} from "/js/utils.js";
+} from "/public/js/utils.js";
 
 
 // ── STATE ──
