@@ -75,8 +75,22 @@ function renderSettings() {
   $("#jennaNameDisplay").textContent = settings.jenna?.name || "Jenna";
 
   // Reminders
-  $("#mikeReminderDisplay").textContent  = `${settings.mike?.reminderTime  || "20:00"} · Melbourne (AEST)`;
-  $("#jennaReminderDisplay").textContent = `${settings.jenna?.reminderTime || "20:00"} · WITA (UTC+8)`;
+  const mikeR  = settings.mike?.reminder  || { time: "20:00", frequency: "daily" };
+  const jennaR = settings.jenna?.reminder || { time: "20:00", frequency: "daily" };
+  const dayNames = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const formatReminder = (r, tz) => {
+    if (r.frequency === "custom" && r.days?.length) {
+      return `${r.days.map(d => dayNames[d]).join("/")} · ${r.time} · ${tz}`;
+    }
+    if (r.frequency === "weekly") return `Weekly · ${r.time} · ${tz}`;
+    return `Daily · ${r.time} · ${tz}`;
+  };
+
+  const mikeReminderEl  = document.getElementById("mikeReminderDisplay");
+  const jennaReminderEl = document.getElementById("jennaReminderDisplay");
+  if (mikeReminderEl)  mikeReminderEl.textContent  = formatReminder(mikeR,  "Melbourne");
+  if (jennaReminderEl) jennaReminderEl.textContent = formatReminder(jennaR, "WITA");
 
   // Presets
   const mp = settings.mike?.preset;
@@ -139,20 +153,48 @@ async function editName(user) {
 
 // ── EDIT REMINDER ──
 async function editReminder(user) {
-  const current = settings[user]?.reminderTime || "20:00";
-  const time    = prompt(
-    `Enter reminder time for ${settings[user]?.name || user} (HH:MM in their local time):`,
-    current
+  const name    = settings[user]?.name || user;
+  const current = settings[user]?.reminder || { time: "20:00", frequency: "daily", days: [] };
+
+  // Step 1 — frequency
+  const freqInput = prompt(
+    `${name}'s reminder frequency:\nType: daily, weekly, or custom`,
+    current.frequency || "daily"
   );
-  if (!time || !/^\d{2}:\d{2}$/.test(time)) {
-    if (time) showToast("Invalid time format. Use HH:MM");
+  if (!freqInput) return;
+  const frequency = freqInput.trim().toLowerCase();
+  if (!["daily", "weekly", "custom"].includes(frequency)) {
+    showToast("Invalid. Use: daily, weekly, or custom");
     return;
   }
 
-  settings[user].reminderTime = time;
+  // Step 2 — custom days
+  let days = current.days || [];
+  if (frequency === "custom") {
+    const daysInput = prompt(
+      `Which days? Enter numbers separated by commas:\n1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat 7=Sun\nExample: 1,3,5 for Mon/Wed/Fri`,
+      days.join(",") || "1,2,3,4,5"
+    );
+    if (!daysInput) return;
+    days = daysInput.split(",").map(d => parseInt(d.trim())).filter(d => d >= 1 && d <= 7);
+  } else if (frequency === "weekly") {
+    days = [1]; // Monday by default for weekly
+  }
+
+  // Step 3 — time
+  const timeInput = prompt(
+    `${name}'s reminder time (HH:MM in their local time):`,
+    current.time || "20:00"
+  );
+  if (!timeInput || !/^\d{2}:\d{2}$/.test(timeInput)) {
+    if (timeInput) showToast("Invalid time. Use HH:MM format");
+    return;
+  }
+
+  settings[user].reminder = { time: timeInput, frequency, days };
   await saveSettings();
   renderSettings();
-  showToast("Reminder time updated");
+  showToast(`${name}'s reminder updated`);
 }
 
 
