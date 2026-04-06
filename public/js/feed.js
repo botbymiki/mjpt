@@ -10,7 +10,7 @@ import {
 
 import {
   $, $$, showToast, relativeDate, formatTime,
-  BRISTOL, STOOL_COLORS, formatSymptoms, USERS
+  BRISTOL, STOOL_COLORS, formatSymptoms, formatVolume, USERS
 } from "/js/utils.js";
 
 // ── STATE ──
@@ -119,6 +119,7 @@ function buildLogItem(log) {
   const time     = formatTime(log.timestamp);
   const user     = USERS[log.user] || USERS.mike;
   const symptoms = formatSymptoms(log.symptoms);
+  const vol      = formatVolume(log.volume);
 
   const item = document.createElement("div");
   item.className = "history-item";
@@ -126,7 +127,7 @@ function buildLogItem(log) {
     <div class="hi-dot" style="background:${color}"></div>
     <div class="hi-body">
       <div class="hi-who ${log.user}">${user.name}</div>
-      <div class="hi-desc">${bristol.label} · ${STOOL_COLORS[log.color]?.label || "Brown"} · ${symptoms}</div>
+      <div class="hi-desc">${bristol.label} · ${vol} · ${symptoms}</div>
       ${log.notes ? `<div class="hi-meta" style="color:var(--color-ink-soft);font-style:italic">"${log.notes}"</div>` : `<div class="hi-meta">${log.source === "import" ? "Imported" : "Via Telegram"} ${log.quick ? "· Quick log" : ""}</div>`}
     </div>
     <div class="hi-right">
@@ -175,6 +176,10 @@ function showLogDetail(log) {
         <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:14px">
           <div style="font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--color-ink-faint);margin-bottom:6px">Logged by</div>
           <div style="font-size:14px;font-weight:600;color:${user.color}">${user.name}</div>
+        </div>
+        <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:14px">
+          <div style="font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--color-ink-faint);margin-bottom:6px">Volume</div>
+          <div style="font-size:14px;font-weight:600">${formatVolume(log.volume)}</div>
         </div>
         <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;padding:14px">
           <div style="font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--color-ink-faint);margin-bottom:6px">Color</div>
