@@ -154,6 +154,21 @@ export const STOOL_COLORS = {
 };
 
 
+// ── VOLUMES ──
+
+export const VOLUMES = {
+  child_size: { label: "Child Size", rank: 1 },
+  small:      { label: "Small",      rank: 2 },
+  normal:     { label: "Normal",     rank: 3 },
+  huge:       { label: "Huge",       rank: 4 },
+  gigantic:   { label: "Gigantic",   rank: 5 }
+};
+
+export function formatVolume(v) {
+  return VOLUMES[v]?.label || "Normal";
+}
+
+
 // ── SYMPTOMS ──
 
 export const SYMPTOMS = ["none", "bloating", "urgency", "cramps", "blood"];
