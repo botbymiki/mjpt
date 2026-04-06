@@ -165,6 +165,7 @@ async function handleQuickLog(chatId, user) {
     user:        user.id,
     bristolType: preset.bristolType,
     color:       preset.color,
+    volume:      preset.volume || "normal",
     symptoms:    preset.symptoms,
     notes:       "",
     quick:       true,
@@ -174,11 +175,10 @@ async function handleQuickLog(chatId, user) {
 
   await db.collection("logs").add(logEntry);
 
-  const b = BRISTOL[preset.bristolType];
+  const b   = BRISTOL[preset.bristolType];
+  const vol = formatVolume(preset.volume || "normal");
   await sendMsg(chatId,
-    `${b.emoji} Logged! Quick log saved.\n\n` +
-    `Type ${preset.bristolType} · ${preset.color} · No symptoms\n\n` +
-    `_Use /log for a full entry_`,
+    `${b.emoji} Logged! Quick log saved.\n\n${b.label} · ${vol} · ${preset.color} · No symptoms\n\n_Use /log for a full entry_`,
     null, { parse_mode: "Markdown" }
   );
 }
@@ -297,21 +297,43 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 
   if (field === "color") {
     session.data.color = value;
-    session.step = "symptoms";
+    session.step = "volume";
 
-    await editMsg(chatId, msgId, `${value} noted.\n\nAny symptoms? (tap all that apply, then Done)`, {
+    await editMsg(chatId, msgId, `${value} noted.\n\nWhat's the volume?`, {
       inline_keyboard: [
         [
-          { text: "✅ None",     callback_data: "log:symptoms:none"     },
-          { text: "🎈 Bloating", callback_data: "log:symptoms:bloating" }
+          { text: "Child Size", callback_data: "log:volume:child_size" },
+          { text: "Small",      callback_data: "log:volume:small"      }
         ],
         [
-          { text: "⚡ Urgency", callback_data: "log:symptoms:urgency" },
-          { text: "😣 Cramps",  callback_data: "log:symptoms:cramps"  }
+          { text: "Normal",  callback_data: "log:volume:normal"  },
+          { text: "Huge",    callback_data: "log:volume:huge"    }
         ],
         [
-          { text: "🩸 Blood",    callback_data: "log:symptoms:blood" },
-          { text: "Done ✓",      callback_data: "log:done:done"       }
+          { text: "Gigantic", callback_data: "log:volume:gigantic" }
+        ]
+      ]
+    });
+    return;
+  }
+
+  if (field === "volume") {
+    session.data.volume = value;
+    session.step = "symptoms";
+
+    await editMsg(chatId, msgId, `Got it.\n\nAny symptoms? (tap all that apply, then Done)`, {
+      inline_keyboard: [
+        [
+          { text: "None",     callback_data: "log:symptoms:none"     },
+          { text: "Bloating", callback_data: "log:symptoms:bloating" }
+        ],
+        [
+          { text: "Urgency", callback_data: "log:symptoms:urgency" },
+          { text: "Cramps",  callback_data: "log:symptoms:cramps"  }
+        ],
+        [
+          { text: "Blood",   callback_data: "log:symptoms:blood" },
+          { text: "Done",    callback_data: "log:done:done"       }
         ]
       ]
     });
@@ -363,23 +385,21 @@ async function saveLog(chatId, data, msgId) {
   if (!data.notes)    data.notes    = "";
   if (!data.symptoms) data.symptoms = ["none"];
   if (!data.color)    data.color    = "brown";
+  if (!data.volume)   data.volume   = "normal";
 
   try {
     await db.collection("logs").add(data);
     const b    = BRISTOL[data.bristolType];
     const syms = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.join(", ");
+    const vol  = formatVolume(data.volume);
     const label = b ? b.emoji : `T${data.bristolType}`;
 
+    const msg = `${label} *Logged!*\n\n${b?.desc || ""}\n${vol} · ${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
+
     if (msgId) {
-      await editMsg(chatId, msgId,
-        `${label} *Logged!*\n\n${b?.desc || ""}\n${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`,
-        null, { parse_mode: "Markdown" }
-      );
+      await editMsg(chatId, msgId, msg, null, { parse_mode: "Markdown" });
     } else {
-      await sendMsg(chatId,
-        `${label} *Logged!*\n\n${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`,
-        null, { parse_mode: "Markdown" }
-      );
+      await sendMsg(chatId, msg, null, { parse_mode: "Markdown" });
     }
   } catch (err) {
     console.error(err);
@@ -387,6 +407,17 @@ async function saveLog(chatId, data, msgId) {
   }
 
   delete sessions[chatId];
+}
+
+function formatVolume(v) {
+  const map = {
+    child_size: "Child Size",
+    small:      "Small",
+    normal:     "Normal",
+    huge:       "Huge",
+    gigantic:   "Gigantic"
+  };
+  return map[v] || "Normal";
 }
 
 
@@ -572,7 +603,7 @@ async function registerUser(chatId, userId, from) {
 async function getUserPreset(userId) {
   const snap = await db.collection("config").doc("settings").get();
   const data = snap.data();
-  return data?.[userId]?.preset || { bristolType: 4, color: "brown", symptoms: ["none"] };
+  return data?.[userId]?.preset || { bristolType: 4, color: "brown", volume: "normal", symptoms: ["none"] };
 }
 
 async function savePreset(userId, updates) {
