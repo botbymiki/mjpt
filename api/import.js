@@ -30,7 +30,14 @@ const COMPOSITION_MAP = {
 };
 
 
-// ── HUE → COLOR ──
+// ── VOLUME MAP ──
+const VOLUME_MAP = {
+  CHILD_SIZE: "child_size",
+  SMALL:      "small",
+  NORMAL:     "normal",
+  HUGE:       "huge",
+  GIGANTIC:   "gigantic"
+};
 const HUE_MAP = {
   BROWN:  "brown",
   RED:    "red",
@@ -85,13 +92,16 @@ function parseCSV(raw) {
     }
     fields.push(current.trim());
 
-    const [startDate, duration, name, volume, composition, hue, conditions, description] = fields;
+    const [startDate, duration, name, volumeRaw, composition, hue, conditions, description] = fields;
 
     // Parse timestamp
     const ts = new Date(startDate);
 
     // Map composition to Bristol type
     const bristolType = COMPOSITION_MAP[composition?.trim()] || 4;
+
+    // Map volume
+    const volume = VOLUME_MAP[volumeRaw?.trim()] || "normal";
 
     // Map hue to color
     const color = HUE_MAP[hue?.trim()] || "brown";
@@ -117,6 +127,7 @@ function parseCSV(raw) {
       timestamp:   Timestamp.fromDate(ts),
       bristolType,
       color,
+      volume,
       symptoms,
       notes,
       source:      "import",
