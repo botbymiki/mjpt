@@ -178,7 +178,7 @@ async function handleQuickLog(chatId, user) {
   const b   = BRISTOL[preset.bristolType];
   const vol = formatVolume(preset.volume || "normal");
   await sendMsg(chatId,
-    `${b.emoji} Logged! Quick log saved.\n\n${b.label} · ${vol} · ${preset.color} · No symptoms\n\n_Use /log for a full entry_`,
+    `*Logged!* ${b?.label || "Soft"}\n\n${vol} · ${preset.color} · No symptoms\n\n_Use /log for a full entry_`,
     null, { parse_mode: "Markdown" }
   );
 }
@@ -392,9 +392,9 @@ async function saveLog(chatId, data, msgId) {
     const b    = BRISTOL[data.bristolType];
     const syms = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.join(", ");
     const vol  = formatVolume(data.volume);
-    const label = b ? b.emoji : `T${data.bristolType}`;
+    const label = b ? b.label : `Type ${data.bristolType}`;
 
-    const msg = `${label} *Logged!*\n\n${b?.desc || ""}\n${vol} · ${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
+    const msg = `*Logged!* ${label}\n\n${vol} · ${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
 
     if (msgId) {
       await editMsg(chatId, msgId, msg, null, { parse_mode: "Markdown" });
