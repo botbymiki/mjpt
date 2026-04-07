@@ -213,6 +213,11 @@ input, textarea, select { font-family: var(--font-body); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 .fade-in-delay-1 { animation-delay: 80ms; }
 .fade-in-delay-2 { animation-delay: 160ms; }
 .fade-in-delay-3 { animation-delay: 240ms; }
