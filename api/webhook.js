@@ -381,32 +381,66 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 
 // ── SAVE LOG ──
 async function saveLog(chatId, data, msgId) {
-  data.timestamp = Timestamp.now();
-  if (!data.notes)    data.notes    = "";
-  if (!data.symptoms) data.symptoms = ["none"];
-  if (!data.color)    data.color    = "brown";
-  if (!data.volume)   data.volume   = "normal";
+  data.timestamp  = Timestamp.now();
+  data.notes      = data.notes    || "";
+  data.symptoms   = data.symptoms || ["none"];
+  data.color      = data.color    || "brown";
+  data.volume     = data.volume   || "normal";
+  data.bristolType = data.bristolType || 4;
 
   try {
     await db.collection("logs").add(data);
-    const b    = BRISTOL[data.bristolType];
-    const syms = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.join(", ");
-    const vol  = formatVolume(data.volume);
-    const label = b ? b.label : `Type ${data.bristolType}`;
 
-    const msg = `*Logged!* ${label}\n\n${vol} · ${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
+    const b     = BRISTOL[data.bristolType] || BRISTOL[4];
+    const syms  = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ");
+    const vol   = formatVolume(data.volume);
+    const color = data.color.replace("_", " ");
+
+    const msg = `*Logged!* ${b.label}\n\n${vol} · ${color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
 
     if (msgId) {
       await editMsg(chatId, msgId, msg, null, { parse_mode: "Markdown" });
     } else {
       await sendMsg(chatId, msg, null, { parse_mode: "Markdown" });
     }
+
+    // ── CROSS NOTIFICATION ──
+    await notifyPartner(data.user, b.label, vol);
+
   } catch (err) {
     console.error(err);
     await sendMsg(chatId, "Failed to save log. Try again.");
   }
 
   delete sessions[chatId];
+}
+
+
+// ── CROSS NOTIFICATION ──
+async function notifyPartner(loggedBy, bristolLabel, volume) {
+  try {
+    const partnerKey = loggedBy === "mike" ? "jenna" : "mike";
+    const loggerName = loggedBy === "mike" ? "Mike" : "Jenna";
+
+    const partnerSnap = await db.collection("users").doc(partnerKey).get();
+    if (!partnerSnap.exists) return;
+
+    const partnerChatId = partnerSnap.data()?.chatId;
+    if (!partnerChatId) return;
+
+    const messages = [
+      `${loggerName} just logged a ${bristolLabel}! 💩`,
+      `Heads up — ${loggerName} just dropped one (${bristolLabel})`,
+      `${loggerName}'s gut has spoken. ${bristolLabel}, ${volume}.`,
+      `FYI: ${loggerName} just logged. ${bristolLabel} · ${volume}`
+    ];
+    const msg = messages[Math.floor(Math.random() * messages.length)];
+
+    await sendMsg(partnerChatId, msg);
+  } catch (err) {
+    console.error("Cross notification failed:", err);
+    // Don't throw — notification failure shouldn't affect log saving
+  }
 }
 
 function formatVolume(v) {
