@@ -21,13 +21,13 @@ const API = `https://api.telegram.org/bot${BOT}`;
 
 // ── BRISTOL INFO ──
 const BRISTOL = {
-  1: { emoji: "T1", desc: "Separate hard lumps — severe constipation" },
-  2: { emoji: "T2", desc: "Lumpy sausage — mild constipation" },
-  3: { emoji: "T3", desc: "Sausage with cracks — normal" },
-  4: { emoji: "T4", desc: "Smooth snake — ideal!" },
-  5: { emoji: "T5", desc: "Soft blobs — lacking fibre" },
-  6: { emoji: "T6", desc: "Fluffy pieces — mild diarrhea" },
-  7: { emoji: "T7", desc: "Watery — severe diarrhea" }
+  1: { label: "Pellet",  desc: "Separate hard lumps — severe constipation" },
+  2: { label: "Rock",    desc: "Lumpy, hard, difficult to pass" },
+  3: { label: "Crackle", desc: "Sausage with cracks — mostly normal" },
+  4: { label: "Soft",    desc: "Smooth, easy to pass — ideal!" },
+  5: { label: "Blob",    desc: "Soft blobs — lacking fibre" },
+  6: { label: "Mush",    desc: "Fluffy, mushy — mild diarrhea" },
+  7: { label: "Liquid",  desc: "Watery — severe diarrhea" }
 };
 
 const COLORS = ["brown", "dark_brown", "yellow", "green", "red", "black", "pale"];
@@ -175,10 +175,10 @@ async function handleQuickLog(chatId, user) {
 
   await db.collection("logs").add(logEntry);
 
-  const b   = BRISTOL[preset.bristolType];
+  const b   = BRISTOL[parseInt(preset.bristolType)] || BRISTOL[4];
   const vol = formatVolume(preset.volume || "normal");
   await sendMsg(chatId,
-    `*Logged!* ${b?.label || "Soft"}\n\n${vol} · ${preset.color} · No symptoms\n\n_Use /log for a full entry_`,
+    `*Logged!* ${b.label}\n\n${vol} · ${preset.color?.replace(/_/g," ") || "brown"} · No symptoms\n\n_Use /log for a full entry_`,
     null, { parse_mode: "Markdown" }
   );
 }
@@ -492,10 +492,11 @@ async function handleHistory(chatId, user) {
 
     const lines = snap.docs.map(d => {
       const l    = d.data();
-      const b    = BRISTOL[l.bristolType];
+      const b    = BRISTOL[parseInt(l.bristolType)] || BRISTOL[4];
       const date = l.timestamp.toDate().toLocaleString("en-AU", { timeZone: "Asia/Makassar", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
       const syms = l.symptoms?.includes("none") ? "" : ` · ${l.symptoms.join(", ")}`;
-      return `${b.emoji} *T${l.bristolType}* · ${l.color}${syms} — _${date}_`;
+      const vol  = formatVolume(l.volume);
+      return `*${b.label}* · ${vol} · ${l.color?.replace(/_/g," ") || "brown"}${syms} — _${date}_`;
     });
 
     await sendMsg(chatId, `📋 *Last 5 logs:*\n\n${lines.join("\n")}`, null, { parse_mode: "Markdown" });
