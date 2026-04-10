@@ -163,10 +163,10 @@ async function handleQuickLog(chatId, user) {
 
   const logEntry = {
     user:        user.id,
-    bristolType: preset.bristolType,
-    color:       preset.color,
-    volume:      preset.volume || "normal",
-    symptoms:    preset.symptoms,
+    bristolType: parseInt(preset.bristolType) || 4,
+    color:       preset.color    || "brown",
+    volume:      preset.volume   || "normal",
+    symptoms:    preset.symptoms || ["none"],
     notes:       "",
     quick:       true,
     source:      "telegram",
@@ -381,12 +381,12 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 
 // ── SAVE LOG ──
 async function saveLog(chatId, data, msgId) {
-  data.timestamp  = Timestamp.now();
-  data.notes      = data.notes    || "";
-  data.symptoms   = data.symptoms || ["none"];
-  data.color      = data.color    || "brown";
-  data.volume     = data.volume   || "normal";
-  data.bristolType = data.bristolType || 4;
+  data.timestamp   = Timestamp.now();
+  data.notes       = data.notes    || "";
+  data.symptoms    = data.symptoms || ["none"];
+  data.color       = data.color    || "brown";
+  data.volume      = data.volume   || "normal";
+  data.bristolType = parseInt(data.bristolType) || 4;  // ensure integer
 
   try {
     await db.collection("logs").add(data);
@@ -394,7 +394,7 @@ async function saveLog(chatId, data, msgId) {
     const b     = BRISTOL[data.bristolType] || BRISTOL[4];
     const syms  = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ");
     const vol   = formatVolume(data.volume);
-    const color = data.color.replace("_", " ");
+    const color = data.color.replace(/_/g, " ");
 
     const msg = `*Logged!* ${b.label}\n\n${vol} · ${color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
 
@@ -404,8 +404,8 @@ async function saveLog(chatId, data, msgId) {
       await sendMsg(chatId, msg, null, { parse_mode: "Markdown" });
     }
 
-    // ── CROSS NOTIFICATION ──
-    await notifyPartner(data.user, b.label, vol);
+    // Cross notify partner
+    await notifyPartner(data.user, data.bristolType, data.volume, data.symptoms);
 
   } catch (err) {
     console.error(err);
@@ -417,29 +417,38 @@ async function saveLog(chatId, data, msgId) {
 
 
 // ── CROSS NOTIFICATION ──
-async function notifyPartner(loggedBy, bristolLabel, volume) {
+async function notifyPartner(loggedBy, bristolType, volume, symptoms) {
   try {
     const partnerKey = loggedBy === "mike" ? "jenna" : "mike";
     const loggerName = loggedBy === "mike" ? "Mike" : "Jenna";
+    const b          = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
+    const vol        = formatVolume(volume);
+    const hasSymp    = symptoms && !symptoms.includes("none") && symptoms.length > 0;
+    const sympNote   = hasSymp ? ` (with ${symptoms.join(", ")})` : "";
+
+    const messages = [
+      `${loggerName} just dropped a ${b.label}${sympNote}. How's your gut doing? 👀`,
+      `Gut report: ${loggerName} logged a ${b.label}, ${vol}${sympNote}. Your turn soon?`,
+      `${loggerName}'s bowels have spoken — ${b.label}, ${vol}. Stay hydrated out there 💧`,
+      `Breaking news: ${loggerName} just visited the throne. ${b.label} · ${vol}${sympNote} 📰`,
+      `${loggerName} is ${b.label === "Soft" ? "absolutely killing it" : b.label === "Liquid" ? "having a rough time" : "doing their thing"} gut-wise today. ${b.label}, ${vol}.`,
+      `PSA: ${loggerName} just logged${sympNote ? " and had " + symptoms.join(", ") : ""}. Drink water, eat fibre, and check in on them 🫶`,
+      `${loggerName} just pooped. ${b.label}, ${vol}. The data doesn't lie 📊`,
+      `Friendly reminder that ${loggerName} just logged a ${b.label}${sympNote}. Maybe ask how they're feeling?`,
+      `${vol} ${b.label} alert from ${loggerName}!${hasSymp ? ` They had ${symptoms.join(", ")} — check on them.` : " All good over there."}`,
+      `${loggerName}'s gut update: ${b.label}, ${vol}${sympNote}. ${b.label === "Soft" ? "Peak performance." : b.label === "Rock" || b.label === "Pellet" ? "Tell them to drink more water!" : b.label === "Liquid" ? "Maybe check on them?" : "Nothing to worry about."}`
+    ];
+
+    const msg = messages[Math.floor(Math.random() * messages.length)];
 
     const partnerSnap = await db.collection("users").doc(partnerKey).get();
     if (!partnerSnap.exists) return;
-
     const partnerChatId = partnerSnap.data()?.chatId;
     if (!partnerChatId) return;
-
-    const messages = [
-      `${loggerName} just logged a ${bristolLabel}! 💩`,
-      `Heads up — ${loggerName} just dropped one (${bristolLabel})`,
-      `${loggerName}'s gut has spoken. ${bristolLabel}, ${volume}.`,
-      `FYI: ${loggerName} just logged. ${bristolLabel} · ${volume}`
-    ];
-    const msg = messages[Math.floor(Math.random() * messages.length)];
 
     await sendMsg(partnerChatId, msg);
   } catch (err) {
     console.error("Cross notification failed:", err);
-    // Don't throw — notification failure shouldn't affect log saving
   }
 }
 
