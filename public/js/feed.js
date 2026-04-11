@@ -57,11 +57,9 @@ async function loadLogs() {
 // ── FILTER ──
 function filterLogs() {
   switch (activeFilter) {
-    case "mike":     return allLogs.filter(l => l.user === "mike");
-    case "jenna":    return allLogs.filter(l => l.user === "jenna");
-    case "symptoms": return allLogs.filter(l => l.symptoms && !l.symptoms.includes("none") && l.symptoms.length > 0);
-    case "type4":    return allLogs.filter(l => l.bristolType === 4);
-    default:         return allLogs;
+    case "mike":  return allLogs.filter(l => l.user === "mike");
+    case "jenna": return allLogs.filter(l => l.user === "jenna");
+    default:      return allLogs;
   }
 }
 

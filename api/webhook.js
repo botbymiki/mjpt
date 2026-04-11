@@ -21,13 +21,13 @@ const API = `https://api.telegram.org/bot${BOT}`;
 
 // ── BRISTOL INFO ──
 const BRISTOL = {
-  1: { emoji: "T1", desc: "Separate hard lumps — severe constipation" },
-  2: { emoji: "T2", desc: "Lumpy sausage — mild constipation" },
-  3: { emoji: "T3", desc: "Sausage with cracks — normal" },
-  4: { emoji: "T4", desc: "Smooth snake — ideal!" },
-  5: { emoji: "T5", desc: "Soft blobs — lacking fibre" },
-  6: { emoji: "T6", desc: "Fluffy pieces — mild diarrhea" },
-  7: { emoji: "T7", desc: "Watery — severe diarrhea" }
+  1: { label: "Pellet",  desc: "Separate hard lumps — severe constipation" },
+  2: { label: "Rock",    desc: "Lumpy, hard, difficult to pass" },
+  3: { label: "Crackle", desc: "Sausage with cracks — mostly normal" },
+  4: { label: "Soft",    desc: "Smooth, easy to pass — ideal!" },
+  5: { label: "Blob",    desc: "Soft blobs — lacking fibre" },
+  6: { label: "Mush",    desc: "Fluffy, mushy — mild diarrhea" },
+  7: { label: "Liquid",  desc: "Watery — severe diarrhea" }
 };
 
 const COLORS = ["brown", "dark_brown", "yellow", "green", "red", "black", "pale"];
@@ -163,10 +163,10 @@ async function handleQuickLog(chatId, user) {
 
   const logEntry = {
     user:        user.id,
-    bristolType: preset.bristolType,
-    color:       preset.color,
-    volume:      preset.volume || "normal",
-    symptoms:    preset.symptoms,
+    bristolType: parseInt(preset.bristolType) || 4,
+    color:       preset.color    || "brown",
+    volume:      preset.volume   || "normal",
+    symptoms:    preset.symptoms || ["none"],
     notes:       "",
     quick:       true,
     source:      "telegram",
@@ -175,10 +175,10 @@ async function handleQuickLog(chatId, user) {
 
   await db.collection("logs").add(logEntry);
 
-  const b   = BRISTOL[preset.bristolType];
+  const b   = BRISTOL[parseInt(preset.bristolType)] || BRISTOL[4];
   const vol = formatVolume(preset.volume || "normal");
   await sendMsg(chatId,
-    `*Logged!* ${b?.label || "Soft"}\n\n${vol} · ${preset.color} · No symptoms\n\n_Use /log for a full entry_`,
+    `*Logged!* ${b.label}\n\n${vol} · ${preset.color?.replace(/_/g," ") || "brown"} · No symptoms\n\n_Use /log for a full entry_`,
     null, { parse_mode: "Markdown" }
   );
 }
@@ -381,32 +381,75 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 
 // ── SAVE LOG ──
 async function saveLog(chatId, data, msgId) {
-  data.timestamp = Timestamp.now();
-  if (!data.notes)    data.notes    = "";
-  if (!data.symptoms) data.symptoms = ["none"];
-  if (!data.color)    data.color    = "brown";
-  if (!data.volume)   data.volume   = "normal";
+  data.timestamp   = Timestamp.now();
+  data.notes       = data.notes    || "";
+  data.symptoms    = data.symptoms || ["none"];
+  data.color       = data.color    || "brown";
+  data.volume      = data.volume   || "normal";
+  data.bristolType = parseInt(data.bristolType) || 4;  // ensure integer
 
   try {
     await db.collection("logs").add(data);
-    const b    = BRISTOL[data.bristolType];
-    const syms = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.join(", ");
-    const vol  = formatVolume(data.volume);
-    const label = b ? b.label : `Type ${data.bristolType}`;
 
-    const msg = `*Logged!* ${label}\n\n${vol} · ${data.color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
+    const b     = BRISTOL[data.bristolType] || BRISTOL[4];
+    const syms  = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ");
+    const vol   = formatVolume(data.volume);
+    const color = data.color.replace(/_/g, " ");
+
+    const msg = `*Logged!* ${b.label}\n\n${vol} · ${color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
 
     if (msgId) {
       await editMsg(chatId, msgId, msg, null, { parse_mode: "Markdown" });
     } else {
       await sendMsg(chatId, msg, null, { parse_mode: "Markdown" });
     }
+
+    // Cross notify partner
+    await notifyPartner(data.user, data.bristolType, data.volume, data.symptoms);
+
   } catch (err) {
     console.error(err);
     await sendMsg(chatId, "Failed to save log. Try again.");
   }
 
   delete sessions[chatId];
+}
+
+
+// ── CROSS NOTIFICATION ──
+async function notifyPartner(loggedBy, bristolType, volume, symptoms) {
+  try {
+    const partnerKey = loggedBy === "mike" ? "jenna" : "mike";
+    const loggerName = loggedBy === "mike" ? "Mike" : "Jenna";
+    const b          = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
+    const vol        = formatVolume(volume);
+    const hasSymp    = symptoms && !symptoms.includes("none") && symptoms.length > 0;
+    const sympNote   = hasSymp ? ` (with ${symptoms.join(", ")})` : "";
+
+    const messages = [
+      `${loggerName} just dropped a ${b.label}${sympNote}. How's your gut doing? 👀`,
+      `Gut report: ${loggerName} logged a ${b.label}, ${vol}${sympNote}. Your turn soon?`,
+      `${loggerName}'s bowels have spoken — ${b.label}, ${vol}. Stay hydrated out there 💧`,
+      `Breaking news: ${loggerName} just visited the throne. ${b.label} · ${vol}${sympNote} 📰`,
+      `${loggerName} is ${b.label === "Soft" ? "absolutely killing it" : b.label === "Liquid" ? "having a rough time" : "doing their thing"} gut-wise today. ${b.label}, ${vol}.`,
+      `PSA: ${loggerName} just logged${sympNote ? " and had " + symptoms.join(", ") : ""}. Drink water, eat fibre, and check in on them 🫶`,
+      `${loggerName} just pooped. ${b.label}, ${vol}. The data doesn't lie 📊`,
+      `Friendly reminder that ${loggerName} just logged a ${b.label}${sympNote}. Maybe ask how they're feeling?`,
+      `${vol} ${b.label} alert from ${loggerName}!${hasSymp ? ` They had ${symptoms.join(", ")} — check on them.` : " All good over there."}`,
+      `${loggerName}'s gut update: ${b.label}, ${vol}${sympNote}. ${b.label === "Soft" ? "Peak performance." : b.label === "Rock" || b.label === "Pellet" ? "Tell them to drink more water!" : b.label === "Liquid" ? "Maybe check on them?" : "Nothing to worry about."}`
+    ];
+
+    const msg = messages[Math.floor(Math.random() * messages.length)];
+
+    const partnerSnap = await db.collection("users").doc(partnerKey).get();
+    if (!partnerSnap.exists) return;
+    const partnerChatId = partnerSnap.data()?.chatId;
+    if (!partnerChatId) return;
+
+    await sendMsg(partnerChatId, msg);
+  } catch (err) {
+    console.error("Cross notification failed:", err);
+  }
 }
 
 function formatVolume(v) {
@@ -438,8 +481,7 @@ async function handleHistory(chatId, user) {
   try {
     const snap = await db.collection("logs")
       .where("user", "==", user.id)
-      .orderBy("timestamp", "desc")
-      .limit(5)
+      .limit(20)
       .get();
 
     if (snap.empty) {
@@ -447,18 +489,24 @@ async function handleHistory(chatId, user) {
       return;
     }
 
-    const lines = snap.docs.map(d => {
-      const l    = d.data();
-      const b    = BRISTOL[l.bristolType];
+    // Sort by timestamp desc in JS — avoids composite index requirement
+    const docs = snap.docs
+      .map(d => ({ ...d.data() }))
+      .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0))
+      .slice(0, 5);
+
+    const lines = docs.map(l => {
+      const b    = BRISTOL[parseInt(l.bristolType)] || BRISTOL[4];
       const date = l.timestamp.toDate().toLocaleString("en-AU", { timeZone: "Asia/Makassar", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
       const syms = l.symptoms?.includes("none") ? "" : ` · ${l.symptoms.join(", ")}`;
-      return `${b.emoji} *T${l.bristolType}* · ${l.color}${syms} — _${date}_`;
+      const vol  = formatVolume(l.volume);
+      return `*${b.label}* · ${vol} · ${l.color?.replace(/_/g," ") || "brown"}${syms} — _${date}_`;
     });
 
-    await sendMsg(chatId, `📋 *Last 5 logs:*\n\n${lines.join("\n")}`, null, { parse_mode: "Markdown" });
+    await sendMsg(chatId, `*Last 5 logs:*\n\n${lines.join("\n")}`, null, { parse_mode: "Markdown" });
   } catch (err) {
-    console.error(err);
-    await sendMsg(chatId, "Failed to load history.");
+    console.error("History error:", err);
+    await sendMsg(chatId, "Failed to load history. Try again.");
   }
 }
 

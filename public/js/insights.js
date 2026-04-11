@@ -121,6 +121,22 @@ function filterLogs() {
 // ── RENDER ALL ──
 function render() {
   const logs = filterLogs();
+
+  // Reset ALL elements to avoid stale data from previous user/period
+  $("#statTotal").textContent      = "—";
+  $("#statAvg").textContent        = "—";
+  $("#statBristol").textContent    = "—";
+  $("#statBristolSub").textContent = "no logs yet";
+  $("#statSymptom").textContent    = "—";
+  $("#scoreNum").textContent       = "—";
+  $("#scoreLabel").textContent     = "—";
+  $("#scoreBadge").textContent     = "";
+  const ring = $("#scoreRing");
+  if (ring) {
+    ring.classList.remove("good", "warn", "danger");
+    ring.style.strokeDashoffset = "251";
+  }
+
   renderScore(logs);
   renderStats(logs);
   renderBarChart();
@@ -145,17 +161,18 @@ function renderScore(logs) {
     numEl.textContent   = "—";
     labelEl.textContent = "No data yet";
     badgeEl.textContent = "Log via Telegram to see score";
+    // Reset ring to empty
+    ring.classList.remove("good", "warn", "danger");
+    ring.style.strokeDashoffset = "251"; // full circumference = empty ring
     return;
   }
 
   numEl.textContent   = score;
   labelEl.textContent = info.label;
 
-  // Ring color
   ring.classList.remove("good", "warn", "danger");
   ring.classList.add(info.class);
 
-  // Animate ring — use requestAnimationFrame for reliable timing
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       ring.style.strokeDashoffset = scoreRingOffset(score);
@@ -198,6 +215,13 @@ function renderStats(logs) {
     const badgeEl = $("#statBristolBadge");
     badgeEl.textContent = topBristol === 4 ? "The Dream" : b?.label || "—";
     badgeEl.className   = `badge badge-${cls}`;
+  } else {
+    // Clear — no data for this user/period
+    $("#statBristol").textContent    = "—";
+    $("#statBristolSub").textContent = "no logs yet";
+    const badgeEl = $("#statBristolBadge");
+    badgeEl.textContent = "—";
+    badgeEl.className   = "badge badge-neutral";
   }
 
   $("#statSymptom").textContent = `${symptomRate}%`;
@@ -274,7 +298,10 @@ function renderBristolDist(logs) {
 
   // Count each type individually
   const counts = { 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0 };
-  logs.forEach(l => { if (l.bristolType && counts[l.bristolType] !== undefined) counts[l.bristolType]++; });
+  logs.forEach(l => {
+    const t = parseInt(l.bristolType);
+    if (t >= 1 && t <= 7) counts[t]++;
+  });
   const total = logs.length || 1;
 
   const rows = [
