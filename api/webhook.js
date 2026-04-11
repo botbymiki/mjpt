@@ -481,8 +481,7 @@ async function handleHistory(chatId, user) {
   try {
     const snap = await db.collection("logs")
       .where("user", "==", user.id)
-      .orderBy("timestamp", "desc")
-      .limit(5)
+      .limit(20)
       .get();
 
     if (snap.empty) {
@@ -490,8 +489,13 @@ async function handleHistory(chatId, user) {
       return;
     }
 
-    const lines = snap.docs.map(d => {
-      const l    = d.data();
+    // Sort by timestamp desc in JS — avoids composite index requirement
+    const docs = snap.docs
+      .map(d => ({ ...d.data() }))
+      .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0))
+      .slice(0, 5);
+
+    const lines = docs.map(l => {
       const b    = BRISTOL[parseInt(l.bristolType)] || BRISTOL[4];
       const date = l.timestamp.toDate().toLocaleString("en-AU", { timeZone: "Asia/Makassar", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
       const syms = l.symptoms?.includes("none") ? "" : ` · ${l.symptoms.join(", ")}`;
@@ -499,10 +503,10 @@ async function handleHistory(chatId, user) {
       return `*${b.label}* · ${vol} · ${l.color?.replace(/_/g," ") || "brown"}${syms} — _${date}_`;
     });
 
-    await sendMsg(chatId, `📋 *Last 5 logs:*\n\n${lines.join("\n")}`, null, { parse_mode: "Markdown" });
+    await sendMsg(chatId, `*Last 5 logs:*\n\n${lines.join("\n")}`, null, { parse_mode: "Markdown" });
   } catch (err) {
-    console.error(err);
-    await sendMsg(chatId, "Failed to load history.");
+    console.error("History error:", err);
+    await sendMsg(chatId, "Failed to load history. Try again.");
   }
 }
 
