@@ -121,6 +121,14 @@ function filterLogs() {
 // ── RENDER ALL ──
 function render() {
   const logs = filterLogs();
+
+  // Reset stat tiles to avoid stale data from previous user
+  $("#statTotal").textContent    = "—";
+  $("#statAvg").textContent      = "—";
+  $("#statBristol").textContent  = "—";
+  $("#statBristolSub").textContent = "no logs yet";
+  $("#statSymptom").textContent  = "—";
+
   renderScore(logs);
   renderStats(logs);
   renderBarChart();
@@ -198,6 +206,13 @@ function renderStats(logs) {
     const badgeEl = $("#statBristolBadge");
     badgeEl.textContent = topBristol === 4 ? "The Dream" : b?.label || "—";
     badgeEl.className   = `badge badge-${cls}`;
+  } else {
+    // Clear — no data for this user/period
+    $("#statBristol").textContent    = "—";
+    $("#statBristolSub").textContent = "no logs yet";
+    const badgeEl = $("#statBristolBadge");
+    badgeEl.textContent = "—";
+    badgeEl.className   = "badge badge-neutral";
   }
 
   $("#statSymptom").textContent = `${symptomRate}%`;
