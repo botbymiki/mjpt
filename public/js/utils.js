@@ -130,14 +130,15 @@ export const BRISTOL = {
 };
 
 export function bristolClass(type) {
-  if (type <= 2) return "danger";
-  if (type === 3 || type === 4) return "good";
-  if (type === 5 || type === 6) return "warn";
+  const t = parseInt(type) || 4;
+  if (t <= 2) return "danger";
+  if (t === 3 || t === 4) return "good";
+  if (t === 5 || t === 6) return "warn";
   return "danger";
 }
 
 export function bristolBadgeText(type) {
-  return BRISTOL[type]?.label || "Unknown";
+  return BRISTOL[parseInt(type)]?.label || "Unknown";
 }
 
 
@@ -192,23 +193,25 @@ export function formatSymptoms(symptoms) {
 export function calcGutScore(logs) {
   if (!logs || logs.length === 0) return null;
 
-  // Bristol score: T4 = 100, T3/T5 = 80, T2/T6 = 50, T1/T7 = 20
+  // Bristol score — ensure integer lookup
   const bristolScores = { 1: 20, 2: 50, 3: 80, 4: 100, 5: 80, 6: 50, 7: 20 };
-  const avgBristol = logs.reduce((acc, l) => acc + (bristolScores[l.bristolType] || 60), 0) / logs.length;
+  const avgBristol = logs.reduce((acc, l) => {
+    const type = parseInt(l.bristolType) || 4;
+    return acc + (bristolScores[type] || 60);
+  }, 0) / logs.length;
 
-  // Symptom score: no symptoms = 100, any symptom reduces score
-  const symptomRate = logs.filter(l => l.symptoms && !l.symptoms.includes("none") && l.symptoms.length > 0).length / logs.length;
+  // Symptom score
+  const symptomRate  = logs.filter(l => l.symptoms && !l.symptoms.includes("none") && l.symptoms.length > 0).length / logs.length;
   const symptomScore = Math.max(0, 100 - (symptomRate * 100));
 
-  // Frequency score: 1-3 logs/day = ideal
-  const days = Math.max(1, [...new Set(logs.map(l => relativeDate(l.timestamp)))].length);
-  const avgPerDay = logs.length / days;
-  const freqScore = avgPerDay >= 1 && avgPerDay <= 3 ? 100
-    : avgPerDay > 3 && avgPerDay <= 5 ? 80
-    : avgPerDay > 5 ? 60
+  // Frequency score — wider healthy range (1-6/day) to accommodate Jenna
+  const days       = Math.max(1, [...new Set(logs.map(l => relativeDate(l.timestamp)))].length);
+  const avgPerDay  = logs.length / days;
+  const freqScore  = avgPerDay >= 1 && avgPerDay <= 6 ? 100
+    : avgPerDay > 6 && avgPerDay <= 8 ? 80
+    : avgPerDay > 8 ? 60
     : 40; // < 1 per day
 
-  // Weighted composite
   const score = Math.round((avgBristol * 0.5) + (symptomScore * 0.35) + (freqScore * 0.15));
   return Math.min(100, Math.max(0, score));
 }
@@ -325,7 +328,7 @@ export function calcBristolDist(logs) {
   if (!logs.length) return dist;
 
   logs.forEach(l => {
-    const t = l.bristolType;
+    const t = parseInt(l.bristolType) || 4;
     if (t <= 2)      dist["1-2"]++;
     else if (t === 3) dist["3"]++;
     else if (t === 4) dist["4"]++;
