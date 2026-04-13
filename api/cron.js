@@ -72,14 +72,13 @@ async function processUser(userId, config) {
     const [remHour]   = (reminder.time || "20:00").split(":").map(Number);
 
     // Check if it's reminder hour
+    console.log(`[${userId}] Local time: ${localStr}, reminder at: ${reminder.time}, localHour: ${localHour}, remHour: ${remHour}`);
     if (localHour !== remHour) {
       return { user: userId, sent: false, reason: `Not reminder time (${localStr} vs ${reminder.time})` };
     }
 
     // Check day of week for weekly/custom
-    const localDay = parseInt(now.toLocaleString("en-US", { timeZone: config.tz, weekday: "short" })
-      .replace("Mon",1).replace("Tue",2).replace("Wed",3).replace("Thu",4)
-      .replace("Fri",5).replace("Sat",6).replace("Sun",7));
+    const localDay = getLocalDayOfWeek(now, config.tz);
 
     if (reminder.frequency === "weekly" && localDay !== 1) {
       return { user: userId, sent: false, reason: "Not weekly reminder day" };
@@ -122,17 +121,42 @@ async function processUser(userId, config) {
 
 
 async function hasLoggedToday(userId, tz) {
-  const now        = new Date();
-  const startOfDay = new Date(now.toLocaleString("en-US", { timeZone: tz }));
-  startOfDay.setHours(0, 0, 0, 0);
+  // Get start of today in user's local timezone correctly
+  const now       = new Date();
+  const localStr  = now.toLocaleDateString("en-CA", { timeZone: tz }); // "YYYY-MM-DD"
+  const [y, m, d] = localStr.split("-").map(Number);
 
+  // Build start of day in UTC by finding midnight in that timezone
+  const startOfDayLocal = new Date(`${localStr}T00:00:00`);
+  // Get the UTC offset for this timezone at this date
+  const utcOffset = now.getTime() - new Date(now.toLocaleString("en-US", { timeZone: tz })).getTime();
+  const startOfDayUTC = new Date(startOfDayLocal.getTime() + utcOffset);
+
+  // Fetch all of user's recent logs and filter in JS — avoids composite index
   const snap = await db.collection("logs")
     .where("user", "==", userId)
-    .where("timestamp", ">=", Timestamp.fromDate(startOfDay))
-    .limit(1)
+    .limit(50)
     .get();
 
-  return !snap.empty;
+  if (snap.empty) return false;
+
+  const startSeconds = startOfDayUTC.getTime() / 1000;
+
+  return snap.docs.some(doc => {
+    const ts = doc.data().timestamp;
+    return ts && ts.seconds >= startSeconds;
+  });
+}
+
+
+function getLocalDayOfWeek(now, tz) {
+  // Returns 1=Mon, 2=Tue, ... 7=Sun
+  const dayStr = now.toLocaleDateString("en-US", { timeZone: tz, weekday: "long" });
+  const map = {
+    "Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4,
+    "Friday": 5, "Saturday": 6, "Sunday": 7
+  };
+  return map[dayStr] || 1;
 }
 
 
