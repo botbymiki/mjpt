@@ -43,15 +43,27 @@ const DEFAULT_MESSAGES = {
 
 // ── HANDLER ──
 module.exports = async (req, res) => {
+  console.log(`[cron] Hit at ${new Date().toISOString()}, auth: ${req.headers.authorization ? "present" : "missing"}`);
+
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const adminKey   = req.query.key;
+
+  // Allow admin manual trigger via ?key= OR cron via Authorization header
+  const validCron  = authHeader === `Bearer ${process.env.CRON_SECRET}`;
+  const validAdmin = adminKey === process.env.ADMIN_KEY;
+
+  if (!validCron && !validAdmin) {
+    console.log(`[cron] Unauthorized — header: ${authHeader}, key: ${adminKey}`);
     return res.status(401).json({ error: "Unauthorized" });
   }
+
+  console.log(`[cron] Authorized via ${validAdmin ? "admin key" : "cron secret"}`);
 
   const results = [];
   for (const [userId, config] of Object.entries(USERS_CONFIG)) {
     const result = await processUser(userId, config);
     results.push(result);
+    console.log(`[cron] ${userId}: ${JSON.stringify(result)}`);
   }
 
   res.status(200).json({ ok: true, results });
