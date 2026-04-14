@@ -143,10 +143,22 @@ async function handleAction(req, res, action) {
       case "stats": {
         const logsSnap  = await db.collection("logs").get();
         const usersSnap = await db.collection("users").get();
+
+        const logsByUser = {};
+        logsSnap.docs.forEach(d => {
+          const u = d.data().user;
+          logsByUser[u] = (logsByUser[u] || 0) + 1;
+        });
+
         const stats = {
           totalLogs:  logsSnap.size,
           totalUsers: usersSnap.size,
-          users:      usersSnap.docs.map(d => ({ id: d.id, ...d.data(), chatId: d.data().chatId ? "✓ linked" : "✗ not linked" }))
+          users: usersSnap.docs.map(d => ({
+            id:               d.id,
+            telegramUsername: d.data().telegramUsername || null,
+            chatId:           d.data().chatId ? "✓ linked" : "✗ not linked",
+            logs:             logsByUser[d.id] || 0
+          }))
         };
         return res.json({ ok: true, stats });
       }
@@ -168,124 +180,383 @@ function adminHTML(key) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>mjpt admin</title>
+  <title>mjpt — Admin</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: monospace; background: #1a1208; color: #e8d8c8; padding: 32px; min-height: 100vh; }
-    h1 { font-size: 24px; margin-bottom: 4px; }
-    .sub { color: #7a6a58; font-size: 12px; margin-bottom: 32px; }
-    .section { margin-bottom: 28px; }
-    .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #7a6a58; margin-bottom: 12px; }
-    .btn { background: #c05a30; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-family: monospace; font-size: 13px; cursor: pointer; margin-right: 8px; margin-bottom: 8px; }
-    .btn:hover { opacity: 0.85; }
-    .btn.danger { background: #8B2010; }
-    .btn.ghost  { background: rgba(255,255,255,0.08); }
-    #output { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 16px; font-size: 12px; line-height: 1.6; min-height: 80px; margin-top: 12px; white-space: pre-wrap; word-break: break-all; color: #b8a888; }
-    input { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: white; padding: 8px 12px; font-family: monospace; font-size: 13px; width: 100%; margin-bottom: 8px; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f0c07; --surface: #1a1208; --surface2: #231908;
+      --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.12);
+      --accent: #c05a30; --accent-soft: rgba(192,90,48,0.12);
+      --good-soft: rgba(61,122,82,0.15); --danger: #8B2010; --danger-soft: rgba(139,32,16,0.12);
+      --text: #e8d8c8; --text-soft: #7a6a58; --text-faint: #3a2a18;
+      --radius: 10px;
+    }
+    body { font-family:-apple-system,'Helvetica Neue',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+    .layout { display:flex; min-height:100vh; }
+    .sidebar { width:220px; background:var(--surface); border-right:1px solid var(--border); position:fixed; top:0; left:0; bottom:0; display:flex; flex-direction:column; overflow-y:auto; }
+    .logo { padding:20px; border-bottom:1px solid var(--border); }
+    .logo-title { font-size:20px; font-weight:700; letter-spacing:-0.5px; }
+    .logo-env { display:inline-block; font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; background:var(--accent-soft); color:var(--accent); padding:2px 8px; border-radius:100px; margin-top:4px; }
+    .nav-group { padding:14px 0 6px; }
+    .nav-label { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--text-faint); padding:0 16px 6px; }
+    .nav-btn { display:flex; align-items:center; gap:10px; padding:9px 16px; cursor:pointer; font-size:13px; color:var(--text-soft); background:none; border:none; width:100%; text-align:left; transition:all 0.15s; font-family:inherit; }
+    .nav-btn:hover { color:var(--text); background:rgba(255,255,255,0.04); }
+    .nav-btn.active { color:var(--accent); background:var(--accent-soft); font-weight:500; }
+    .nav-icon { width:15px; height:15px; flex-shrink:0; opacity:0.6; }
+    .nav-btn.active .nav-icon { opacity:1; }
+    .main { margin-left:220px; padding:32px; max-width:720px; }
+    .page { display:none; }
+    .page.active { display:block; }
+    .page-title { font-size:22px; font-weight:700; letter-spacing:-0.5px; margin-bottom:4px; }
+    .page-sub { font-size:13px; color:var(--text-soft); margin-bottom:24px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin-bottom:12px; }
+    .card-label { font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-soft); margin-bottom:12px; }
+    .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+    .stat-box { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:14px; }
+    .stat-num { font-size:28px; font-weight:700; line-height:1; margin-bottom:4px; }
+    .stat-lbl { font-size:11px; color:var(--text-soft); }
+    .user-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }
+    .user-row:last-child { border-bottom:none; }
+    .user-name { font-size:14px; font-weight:500; }
+    .user-sub { font-size:12px; color:var(--text-soft); margin-top:1px; }
+    .pill { display:inline-flex; align-items:center; font-size:11px; font-weight:600; padding:3px 10px; border-radius:100px; }
+    .pill-good { background:var(--good-soft); color:#5daa82; }
+    .pill-mute { background:rgba(255,255,255,0.06); color:var(--text-soft); }
+    .btn { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; border:none; transition:all 0.15s; font-family:inherit; }
+    .btn:active { transform:scale(0.97); }
+    .btn:disabled { opacity:0.45; cursor:not-allowed; transform:none; }
+    .btn-primary { background:var(--accent); color:white; }
+    .btn-primary:hover:not(:disabled) { opacity:0.88; }
+    .btn-ghost { background:rgba(255,255,255,0.06); color:var(--text); border:1px solid var(--border2); }
+    .btn-ghost:hover:not(:disabled) { background:rgba(255,255,255,0.1); }
+    .btn-danger { background:var(--danger); color:white; }
+    .btn-danger:hover:not(:disabled) { opacity:0.88; }
+    .btn-sm { padding:6px 12px; font-size:12px; }
+    .btn-row { display:flex; gap:8px; flex-wrap:wrap; }
+    label { display:block; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--text-soft); margin-bottom:5px; }
+    input, textarea, select { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:9px 12px; font-family:inherit; font-size:13px; outline:none; transition:border 0.15s; margin-bottom:12px; }
+    input:focus, textarea:focus, select:focus { border-color:var(--accent); }
+    textarea { resize:vertical; line-height:1.5; }
+    .result { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:14px; font-size:12px; font-family:monospace; line-height:1.7; white-space:pre-wrap; word-break:break-all; color:#b8a888; margin-top:14px; min-height:48px; }
+    .result.ok { border-color:rgba(61,122,82,0.35); color:#5daa82; }
+    .result.err { border-color:rgba(139,32,16,0.35); color:#e05040; }
+    .log-row { padding:10px 0; border-bottom:1px solid var(--border); }
+    .log-row:last-child { border-bottom:none; }
+    .log-main { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .log-detail { font-size:13px; font-weight:500; }
+    .log-meta { font-size:11px; color:var(--text-soft); margin-top:2px; }
+    .log-id { font-family:monospace; font-size:10px; color:var(--text-faint); margin-top:2px; }
+    .danger-zone { border:1px solid rgba(139,32,16,0.3); border-radius:var(--radius); padding:18px; background:rgba(139,32,16,0.06); }
+    .danger-title { font-size:13px; font-weight:600; color:#e05040; margin-bottom:6px; }
+    .danger-desc { font-size:12px; color:var(--text-soft); margin-bottom:14px; line-height:1.5; }
+    .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(10px); background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:10px 20px; font-size:13px; opacity:0; pointer-events:none; transition:all 0.22s; z-index:999; white-space:nowrap; box-shadow:0 8px 32px rgba(0,0,0,0.5); }
+    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+    .toast.ok { border-color:rgba(61,122,82,0.5); color:#5daa82; }
+    .toast.err { border-color:rgba(139,32,16,0.5); color:#e05040; }
+    code { font-family:monospace; font-size:12px; background:var(--surface2); padding:2px 6px; border-radius:4px; }
   </style>
 </head>
 <body>
-  <h1>mjpt admin</h1>
-  <div class="sub">Mike &amp; Jenna Poop Tracker — Admin Panel</div>
+<div class="layout">
+<nav class="sidebar">
+  <div class="logo"><div class="logo-title">mjpt</div><div class="logo-env">Admin</div></div>
+  <div class="nav-group">
+    <div class="nav-label">Overview</div>
+    <button class="nav-btn active" onclick="nav('stats',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Stats
+    </button>
+  </div>
+  <div class="nav-group">
+    <div class="nav-label">Reminders</div>
+    <button class="nav-btn" onclick="nav('reminders',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>Send reminder
+    </button>
+    <button class="nav-btn" onclick="nav('cron',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Test cron
+    </button>
+    <button class="nav-btn" onclick="nav('wording',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>Wording
+    </button>
+  </div>
+  <div class="nav-group">
+    <div class="nav-label">Data</div>
+    <button class="nav-btn" onclick="nav('logs',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>Raw logs
+    </button>
+    <button class="nav-btn" onclick="nav('danger',this)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>Danger zone
+    </button>
+  </div>
+</nav>
 
-  <div class="section">
-    <h2>Stats</h2>
-    <button class="btn ghost" onclick="action('stats')">View stats</button>
+<main class="main">
+  <div class="page active" id="page-stats">
+    <div class="page-title">Stats</div>
+    <div class="page-sub">Overview of logs and users</div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-num" id="sTotal">—</div><div class="stat-lbl">Total logs</div></div>
+      <div class="stat-box"><div class="stat-num" id="sMike">—</div><div class="stat-lbl">Mike's logs</div></div>
+      <div class="stat-box"><div class="stat-num" id="sJenna">—</div><div class="stat-lbl">Jenna's logs</div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Telegram status</div>
+      <div id="usersList"><span style="color:var(--text-soft);font-size:13px">Loading...</span></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="loadStats()">↻ Refresh</button>
   </div>
 
-  <div class="section">
-    <h2>Reminders — Manual Trigger</h2>
-    <button class="btn" onclick="action('trigger_reminder', { user: 'mike' })">Remind Mike now</button>
-    <button class="btn" onclick="action('trigger_reminder', { user: 'jenna' })">Remind Jenna now</button>
-    <button class="btn" onclick="action('trigger_reminder', {})">Remind both now</button>
-    <br><br>
-    <input id="customMsg" placeholder="Custom one-off message (leave empty for random saved message)" />
-    <button class="btn ghost" onclick="triggerWithMessage('mike')">Send custom → Mike</button>
-    <button class="btn ghost" onclick="triggerWithMessage('jenna')">Send custom → Jenna</button>
+  <div class="page" id="page-reminders">
+    <div class="page-title">Send Reminder</div>
+    <div class="page-sub">Manually trigger a Telegram reminder</div>
+    <div class="card">
+      <div class="card-label">Quick trigger</div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="triggerReminder('mike')">Send to Mike</button>
+        <button class="btn btn-primary" onclick="triggerReminder('jenna')">Send to Jenna</button>
+        <button class="btn btn-ghost" onclick="triggerReminder('both')">Send to both</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Custom message</div>
+      <label>Message (leave empty to use saved wording)</label>
+      <input id="customMsg" placeholder="Hey! Don't forget to log today..." />
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" onclick="triggerCustom('mike')">→ Mike</button>
+        <button class="btn btn-ghost btn-sm" onclick="triggerCustom('jenna')">→ Jenna</button>
+      </div>
+    </div>
+    <div class="result" id="reminderResult">Trigger a reminder to see results.</div>
   </div>
 
-  <div class="section">
-    <h2>Reminder Wording — Auto (scheduled)</h2>
-    <button class="btn ghost" onclick="action('get_wording')">View current wording</button>
-    <br><br>
-    <p style="color:#7a6a58;font-size:11px;margin-bottom:8px">Enter messages one per line. Bot picks randomly each time.</p>
-    <select id="wordingUser" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:white;padding:8px 12px;font-family:monospace;font-size:13px;width:100%;margin-bottom:8px">
-      <option value="mike">Mike</option>
-      <option value="jenna">Jenna</option>
-    </select>
-    <select id="wordingType" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:white;padding:8px 12px;font-family:monospace;font-size:13px;width:100%;margin-bottom:8px">
-      <option value="auto">Auto (scheduled reminder)</option>
-      <option value="manual">Manual (admin trigger)</option>
-    </select>
-    <textarea id="wordingMessages" rows="5" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:white;padding:12px;font-family:monospace;font-size:12px;width:100%;margin-bottom:8px;resize:vertical" placeholder="Enter one message per line..."></textarea>
-    <button class="btn" onclick="saveWording()">Save wording</button>
+  <div class="page" id="page-cron">
+    <div class="page-title">Test Cron</div>
+    <div class="page-sub">Run the reminder cron manually to debug timing and delivery</div>
+    <div class="card">
+      <div class="card-label">Run cron now</div>
+      <p style="font-size:13px;color:var(--text-soft);margin-bottom:14px;line-height:1.5">
+        Calls <code>/api/cron</code> using your admin key. Shows why each user did or didn't get a reminder — local time, reminder time, and whether they already logged today.
+      </p>
+      <button class="btn btn-primary" id="cronBtn" onclick="testCron()">▶ Run cron now</button>
+    </div>
+    <div class="result" id="cronResult">Click run to see cron output.</div>
   </div>
 
-  <div class="section">
-    <h2>Raw Logs</h2>
-    <button class="btn ghost" onclick="action('raw_logs')">Last 50 logs</button>
+  <div class="page" id="page-wording">
+    <div class="page-title">Reminder Wording</div>
+    <div class="page-sub">Customize bot messages. One per line — picked randomly each time.</div>
+    <div class="card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div><label>User</label><select id="wordingUser" onchange="loadWording()"><option value="mike">Mike</option><option value="jenna">Jenna</option></select></div>
+        <div><label>Type</label><select id="wordingType" onchange="loadWording()"><option value="auto">Scheduled (auto)</option><option value="manual">Manual trigger</option></select></div>
+      </div>
+      <label>Messages — one per line</label>
+      <textarea id="wordingMessages" rows="7" placeholder="Hey! No logs yet today...&#10;Time to check in on your gut!"></textarea>
+      <div class="btn-row">
+        <button class="btn btn-ghost btn-sm" onclick="loadWording()">↻ Reload</button>
+        <button class="btn btn-primary btn-sm" onclick="saveWording()">Save</button>
+      </div>
+    </div>
+    <div class="result" id="wordingResult" style="display:none"></div>
   </div>
 
-  <div class="section">
-    <h2>Delete Entry</h2>
-    <input id="deleteId" placeholder="Firestore document ID" />
-    <button class="btn danger" onclick="deleteEntry()">Delete log</button>
+  <div class="page" id="page-logs">
+    <div class="page-title">Raw Logs</div>
+    <div class="page-sub">Last 50 entries from Firestore</div>
+    <div class="btn-row" style="margin-bottom:16px">
+      <button class="btn btn-ghost" onclick="loadLogs()">Load logs</button>
+    </div>
+    <div id="logsList"><span style="color:var(--text-soft);font-size:13px">Click load to fetch logs.</span></div>
   </div>
 
-  <div class="section">
-    <h2>Reset All Data</h2>
-    <p style="color:#7a6a58;font-size:12px;margin-bottom:8px">⚠️ This permanently deletes all logs. Cannot be undone.</p>
-    <button class="btn danger" onclick="resetData()">Reset all logs</button>
+  <div class="page" id="page-danger">
+    <div class="page-title">Danger Zone</div>
+    <div class="page-sub">Destructive actions — be careful</div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-label">Delete single entry</div>
+      <label>Document ID (copy from Raw Logs)</label>
+      <input id="deleteId" placeholder="abc123xyz..." />
+      <button class="btn btn-danger btn-sm" onclick="deleteSingle()">Delete entry</button>
+      <div class="result" id="deleteResult" style="display:none"></div>
+    </div>
+    <div class="danger-zone">
+      <div class="danger-title">Reset all data</div>
+      <div class="danger-desc">Permanently deletes every log. Only use to wipe test data. No undo.</div>
+      <button class="btn btn-danger" onclick="resetAll()">Reset all logs</button>
+      <div class="result" id="resetResult" style="display:none"></div>
+    </div>
   </div>
+</main>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const KEY = "${key}";
+let toastTimer;
 
-  <div id="output">Output will appear here...</div>
+function nav(page, btn) {
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("page-" + page).classList.add("active");
+  btn.classList.add("active");
+  if (page === "stats") loadStats();
+  if (page === "wording") loadWording();
+}
 
-  <script>
-    const KEY = "${key}";
+function toast(msg, type = "ok") {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.className = "toast show " + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = "toast", 2800);
+}
 
-    async function action(act, body = {}) {
-      const out = document.getElementById("output");
-      out.textContent = "Loading...";
-      try {
-        const res  = await fetch("/api/admin?key=" + KEY + "&action=" + act, {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify(body)
-        });
-        const data = await res.json();
-        out.textContent = JSON.stringify(data, null, 2);
-      } catch (err) {
-        out.textContent = "Error: " + err.message;
-      }
+function setBtn(id, loading, orig) {
+  const b = document.getElementById(id); if (!b) return;
+  b.disabled = loading;
+  b.textContent = loading ? "Loading..." : (orig || b.dataset.orig || b.textContent);
+  if (orig) b.dataset.orig = orig;
+}
+
+async function api(action, body = {}) {
+  const res = await fetch("/api/admin?key=" + KEY + "&action=" + action, {
+    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)
+  });
+  return res.json();
+}
+
+function showResult(id, data, msg) {
+  const el = document.getElementById(id); if (!el) return;
+  el.style.display = "block";
+  el.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  el.className = "result " + (data?.ok !== false ? "ok" : "err");
+  toast(msg || (data?.ok ? "Done" : "Failed"), data?.ok !== false ? "ok" : "err");
+}
+
+async function loadStats() {
+  const data = await api("stats");
+  if (!data?.ok) { toast("Failed to load stats", "err"); return; }
+  const s = data.stats;
+  document.getElementById("sTotal").textContent = s.totalLogs;
+  const mk = s.users?.find(u => u.id === "mike");
+  const jn = s.users?.find(u => u.id === "jenna");
+  document.getElementById("sMike").textContent  = mk?.logs ?? "—";
+  document.getElementById("sJenna").textContent = jn?.logs ?? "—";
+  document.getElementById("usersList").innerHTML = (s.users || []).map(u => \`
+    <div class="user-row">
+      <div>
+        <div class="user-name">\${u.id === "mike" ? "Mike" : "Jenna"}</div>
+        <div class="user-sub">\${u.telegramUsername ? "@" + u.telegramUsername : "Not linked"} · \${u.logs} logs</div>
+      </div>
+      <span class="pill \${u.chatId === "✓ linked" ? "pill-good" : "pill-mute"}">\${u.chatId === "✓ linked" ? "Linked" : "Not linked"}</span>
+    </div>
+  \`).join("");
+  toast("Stats loaded");
+}
+
+async function triggerReminder(user) {
+  const users = user === "both" ? ["mike","jenna"] : [user];
+  let sent = [];
+  for (const u of users) {
+    const d = await api("trigger_reminder", { user: u });
+    if (d?.ok) sent.push(u.charAt(0).toUpperCase()+u.slice(1));
+  }
+  showResult("reminderResult", { ok: sent.length > 0, sent },
+    sent.length ? "Sent to " + sent.join(" & ") : "Failed to send");
+}
+
+async function triggerCustom(user) {
+  const msg = document.getElementById("customMsg").value.trim();
+  const d = await api("trigger_reminder", { user, message: msg || undefined });
+  showResult("reminderResult", d, d?.ok ? "Sent to " + user : "Failed");
+}
+
+async function testCron() {
+  setBtn("cronBtn", true, "▶ Run cron now");
+  try {
+    const res  = await fetch("/api/cron?key=" + KEY);
+    const data = await res.json();
+    const el   = document.getElementById("cronResult");
+    if (data?.results) {
+      el.className = "result ok";
+      el.textContent = data.results.map(r =>
+        r.user.toUpperCase() + "\\n" +
+        "  sent:   " + r.sent + "\\n" +
+        "  reason: " + (r.reason || r.msg || r.error || "—")
+      ).join("\\n\\n");
+      toast("Cron ran — " + data.results.filter(r=>r.sent).length + " sent");
+    } else {
+      el.className = "result err";
+      el.textContent = JSON.stringify(data, null, 2);
+      toast("Unexpected cron response", "err");
     }
+  } catch(e) {
+    showResult("cronResult", { ok:false }, "Request failed: " + e.message);
+  } finally {
+    setBtn("cronBtn", false);
+  }
+}
 
-    async function deleteEntry() {
-      const id = document.getElementById("deleteId").value.trim();
-      if (!id) { alert("Enter a document ID"); return; }
-      if (!confirm("Delete log " + id + "?")) return;
-      await action("delete_entry", { id });
-    }
+async function loadWording() {
+  const data = await api("get_wording");
+  if (!data?.ok) { toast("Failed to load wording", "err"); return; }
+  const user = document.getElementById("wordingUser").value;
+  const type = document.getElementById("wordingType").value;
+  const msgs = type === "auto" ? data[user]?.auto : data[user]?.manual;
+  document.getElementById("wordingMessages").value = (msgs || []).join("\\n");
+  if (msgs?.length) toast(msgs.length + " messages loaded");
+}
 
-    async function resetData() {
-      const confirmed = prompt('Type RESET_ALL_DATA to confirm:');
-      if (!confirmed) return;
-      await action("reset_data", { confirm: confirmed });
-    }
+async function saveWording() {
+  const user = document.getElementById("wordingUser").value;
+  const type = document.getElementById("wordingType").value;
+  const msgs = document.getElementById("wordingMessages").value.split("\\n").map(m=>m.trim()).filter(Boolean);
+  if (!msgs.length) { toast("Enter at least one message", "err"); return; }
+  const data = await api("update_wording", { user, type, messages: msgs });
+  showResult("wordingResult", data, data?.ok ? "Saved " + msgs.length + " messages" : "Save failed");
+}
 
-    async function triggerWithMessage(user) {
-      const msg = document.getElementById("customMsg").value.trim();
-      await action("trigger_reminder", { user, message: msg || undefined });
-    }
+async function loadLogs() {
+  const data = await api("raw_logs");
+  if (!data?.ok) { toast("Failed to load logs", "err"); return; }
+  const c = document.getElementById("logsList");
+  if (!data.logs.length) { c.innerHTML = '<span style="color:var(--text-soft);font-size:13px">No logs found.</span>'; return; }
+  c.innerHTML = data.logs.map(l => \`
+    <div class="log-row">
+      <div class="log-main">
+        <div>
+          <div class="log-detail">\${l.user==="mike"?"Mike":"Jenna"} · T\${l.bristolType} · \${l.volume||"normal"} · \${l.color||"brown"}\${l.symptoms?.includes("none")?"":" · "+l.symptoms?.join(", ")}</div>
+          <div class="log-meta">\${l.timestamp||"—"}\${l.notes?' · "'+l.notes+'"':""}</div>
+          <div class="log-id">\${l.id}</div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="confirmDelete('\${l.id}')">Delete</button>
+      </div>
+    </div>
+  \`).join("");
+  toast(data.count + " logs loaded");
+}
 
-    async function saveWording() {
-      const user     = document.getElementById("wordingUser").value;
-      const type     = document.getElementById("wordingType").value;
-      const raw      = document.getElementById("wordingMessages").value;
-      const messages = raw.split("\\n").map(m => m.trim()).filter(m => m.length > 0);
-      if (messages.length === 0) { alert("Enter at least one message"); return; }
-      await action("update_wording", { user, type, messages });
-    }
-  </script>
+async function confirmDelete(id) {
+  if (!confirm("Delete " + id + "?")) return;
+  const d = await api("delete_entry", { id });
+  if (d?.ok) { toast("Deleted"); loadLogs(); }
+  else toast("Delete failed", "err");
+}
+
+async function deleteSingle() {
+  const id = document.getElementById("deleteId").value.trim();
+  if (!id) { toast("Enter a document ID", "err"); return; }
+  if (!confirm("Delete " + id + "? Cannot be undone.")) return;
+  const d = await api("delete_entry", { id });
+  showResult("deleteResult", d, d?.ok ? "Deleted" : "Failed");
+}
+
+async function resetAll() {
+  const c = prompt("Type RESET_ALL_DATA to confirm:");
+  if (!c) return;
+  const d = await api("reset_data", { confirm: c });
+  showResult("resetResult", d, d?.ok ? d.deleted + " logs deleted" : "Failed or wrong confirmation");
+}
+
+loadStats();
+</script>
 </body>
 </html>`;
 }
