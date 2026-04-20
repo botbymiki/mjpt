@@ -476,12 +476,27 @@ async function testCron() {
     const el   = document.getElementById("cronResult");
     if (data?.results) {
       el.className = "result ok";
-      el.textContent = data.results.map(r =>
-        r.user.toUpperCase() + "\\n" +
-        "  sent:   " + r.sent + "\\n" +
-        "  reason: " + (r.reason || r.msg || r.error || "—")
-      ).join("\\n\\n");
-      toast("Cron ran — " + data.results.filter(r=>r.sent).length + " sent");
+      el.textContent = data.results.map(r => {
+        let lines = r.user.toUpperCase();
+        if (r.error) {
+          lines += "\n  error: " + r.error;
+        } else if (r.actions) {
+          r.actions.forEach(a => {
+            lines += "\n  [" + a.type + "] sent: " + a.sent;
+            if (a.reason) lines += " — " + a.reason;
+            if (a.msg)    lines += "\n    msg: " + a.msg;
+          });
+        } else {
+          lines += "\n  sent: " + r.sent;
+          if (r.reason) lines += " — " + r.reason;
+        }
+        return lines;
+      }).join("\n\n");
+      const totalSent = data.results.reduce((acc, r) => {
+        if (!r.actions) return acc;
+        return acc + r.actions.filter(a => a.sent).length;
+      }, 0);
+      toast("Cron ran — " + totalSent + " notification(s) sent");
     } else {
       el.className = "result err";
       el.textContent = JSON.stringify(data, null, 2);
