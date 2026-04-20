@@ -175,85 +175,84 @@ async function handleAction(req, res, action) {
 
 // ── ADMIN HTML ──
 function adminHTML(key) {
+  const k = key;
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>mjpt — Admin</title>
+  <title>mjpt admin</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0f0c07; --surface: #1a1208; --surface2: #231908;
-      --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.12);
-      --accent: #c05a30; --accent-soft: rgba(192,90,48,0.12);
-      --good-soft: rgba(61,122,82,0.15); --danger: #8B2010; --danger-soft: rgba(139,32,16,0.12);
-      --text: #e8d8c8; --text-soft: #7a6a58; --text-faint: #3a2a18;
-      --radius: 10px;
+      --bg:#0f0c07;--surface:#1a1208;--surface2:#231908;
+      --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.12);
+      --accent:#c05a30;--accent-soft:rgba(192,90,48,0.12);
+      --good-soft:rgba(61,122,82,0.15);--danger:#8B2010;--danger-soft:rgba(139,32,16,0.12);
+      --text:#e8d8c8;--text-soft:#7a6a58;--text-faint:#3a2a18;--radius:10px;
     }
-    body { font-family:-apple-system,'Helvetica Neue',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
-    .layout { display:flex; min-height:100vh; }
-    .sidebar { width:220px; background:var(--surface); border-right:1px solid var(--border); position:fixed; top:0; left:0; bottom:0; display:flex; flex-direction:column; overflow-y:auto; }
-    .logo { padding:20px; border-bottom:1px solid var(--border); }
-    .logo-title { font-size:20px; font-weight:700; letter-spacing:-0.5px; }
-    .logo-env { display:inline-block; font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; background:var(--accent-soft); color:var(--accent); padding:2px 8px; border-radius:100px; margin-top:4px; }
-    .nav-group { padding:14px 0 6px; }
-    .nav-label { font-size:9px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--text-faint); padding:0 16px 6px; }
-    .nav-btn { display:flex; align-items:center; gap:10px; padding:9px 16px; cursor:pointer; font-size:13px; color:var(--text-soft); background:none; border:none; width:100%; text-align:left; transition:all 0.15s; font-family:inherit; }
-    .nav-btn:hover { color:var(--text); background:rgba(255,255,255,0.04); }
-    .nav-btn.active { color:var(--accent); background:var(--accent-soft); font-weight:500; }
-    .nav-icon { width:15px; height:15px; flex-shrink:0; opacity:0.6; }
-    .nav-btn.active .nav-icon { opacity:1; }
-    .main { margin-left:220px; padding:32px; max-width:720px; }
-    .page { display:none; }
-    .page.active { display:block; }
-    .page-title { font-size:22px; font-weight:700; letter-spacing:-0.5px; margin-bottom:4px; }
-    .page-sub { font-size:13px; color:var(--text-soft); margin-bottom:24px; }
-    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin-bottom:12px; }
-    .card-label { font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-soft); margin-bottom:12px; }
-    .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
-    .stat-box { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:14px; }
-    .stat-num { font-size:28px; font-weight:700; line-height:1; margin-bottom:4px; }
-    .stat-lbl { font-size:11px; color:var(--text-soft); }
-    .user-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); }
-    .user-row:last-child { border-bottom:none; }
-    .user-name { font-size:14px; font-weight:500; }
-    .user-sub { font-size:12px; color:var(--text-soft); margin-top:1px; }
-    .pill { display:inline-flex; align-items:center; font-size:11px; font-weight:600; padding:3px 10px; border-radius:100px; }
-    .pill-good { background:var(--good-soft); color:#5daa82; }
-    .pill-mute { background:rgba(255,255,255,0.06); color:var(--text-soft); }
-    .btn { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:8px; font-size:13px; font-weight:500; cursor:pointer; border:none; transition:all 0.15s; font-family:inherit; }
-    .btn:active { transform:scale(0.97); }
-    .btn:disabled { opacity:0.45; cursor:not-allowed; transform:none; }
-    .btn-primary { background:var(--accent); color:white; }
-    .btn-primary:hover:not(:disabled) { opacity:0.88; }
-    .btn-ghost { background:rgba(255,255,255,0.06); color:var(--text); border:1px solid var(--border2); }
-    .btn-ghost:hover:not(:disabled) { background:rgba(255,255,255,0.1); }
-    .btn-danger { background:var(--danger); color:white; }
-    .btn-danger:hover:not(:disabled) { opacity:0.88; }
-    .btn-sm { padding:6px 12px; font-size:12px; }
-    .btn-row { display:flex; gap:8px; flex-wrap:wrap; }
-    label { display:block; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--text-soft); margin-bottom:5px; }
-    input, textarea, select { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:9px 12px; font-family:inherit; font-size:13px; outline:none; transition:border 0.15s; margin-bottom:12px; }
-    input:focus, textarea:focus, select:focus { border-color:var(--accent); }
-    textarea { resize:vertical; line-height:1.5; }
-    .result { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:14px; font-size:12px; font-family:monospace; line-height:1.7; white-space:pre-wrap; word-break:break-all; color:#b8a888; margin-top:14px; min-height:48px; }
-    .result.ok { border-color:rgba(61,122,82,0.35); color:#5daa82; }
-    .result.err { border-color:rgba(139,32,16,0.35); color:#e05040; }
-    .log-row { padding:10px 0; border-bottom:1px solid var(--border); }
-    .log-row:last-child { border-bottom:none; }
-    .log-main { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
-    .log-detail { font-size:13px; font-weight:500; }
-    .log-meta { font-size:11px; color:var(--text-soft); margin-top:2px; }
-    .log-id { font-family:monospace; font-size:10px; color:var(--text-faint); margin-top:2px; }
-    .danger-zone { border:1px solid rgba(139,32,16,0.3); border-radius:var(--radius); padding:18px; background:rgba(139,32,16,0.06); }
-    .danger-title { font-size:13px; font-weight:600; color:#e05040; margin-bottom:6px; }
-    .danger-desc { font-size:12px; color:var(--text-soft); margin-bottom:14px; line-height:1.5; }
-    .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(10px); background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:10px 20px; font-size:13px; opacity:0; pointer-events:none; transition:all 0.22s; z-index:999; white-space:nowrap; box-shadow:0 8px 32px rgba(0,0,0,0.5); }
-    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
-    .toast.ok { border-color:rgba(61,122,82,0.5); color:#5daa82; }
-    .toast.err { border-color:rgba(139,32,16,0.5); color:#e05040; }
-    code { font-family:monospace; font-size:12px; background:var(--surface2); padding:2px 6px; border-radius:4px; }
+    body{font-family:-apple-system,'Helvetica Neue',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+    .layout{display:flex;min-height:100vh;}
+    .sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;display:flex;flex-direction:column;overflow-y:auto;}
+    .logo{padding:20px;border-bottom:1px solid var(--border);}
+    .logo-title{font-size:20px;font-weight:700;letter-spacing:-0.5px;}
+    .logo-env{display:inline-block;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;background:var(--accent-soft);color:var(--accent);padding:2px 8px;border-radius:100px;margin-top:4px;}
+    .nav-group{padding:14px 0 6px;}
+    .nav-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-faint);padding:0 16px 6px;}
+    .nav-btn{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;color:var(--text-soft);background:none;border:none;width:100%;text-align:left;transition:all 0.15s;font-family:inherit;}
+    .nav-btn:hover{color:var(--text);background:rgba(255,255,255,0.04);}
+    .nav-btn.active{color:var(--accent);background:var(--accent-soft);font-weight:500;}
+    .nav-icon{width:15px;height:15px;flex-shrink:0;opacity:0.6;}
+    .nav-btn.active .nav-icon{opacity:1;}
+    .main{margin-left:220px;padding:32px;max-width:720px;}
+    .page{display:none;}.page.active{display:block;}
+    .page-title{font-size:22px;font-weight:700;letter-spacing:-0.5px;margin-bottom:4px;}
+    .page-sub{font-size:13px;color:var(--text-soft);margin-bottom:24px;}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:12px;}
+    .card-label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-soft);margin-bottom:12px;}
+    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+    .stat-box{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;}
+    .stat-num{font-size:28px;font-weight:700;line-height:1;margin-bottom:4px;}
+    .stat-lbl{font-size:11px;color:var(--text-soft);}
+    .user-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);}
+    .user-row:last-child{border-bottom:none;}
+    .user-name{font-size:14px;font-weight:500;}
+    .user-sub{font-size:12px;color:var(--text-soft);margin-top:1px;}
+    .pill{display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:3px 10px;border-radius:100px;}
+    .pill-good{background:var(--good-soft);color:#5daa82;}
+    .pill-mute{background:rgba(255,255,255,0.06);color:var(--text-soft);}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s;font-family:inherit;}
+    .btn:active{transform:scale(0.97);}
+    .btn:disabled{opacity:0.45;cursor:not-allowed;transform:none;}
+    .btn-primary{background:var(--accent);color:white;}
+    .btn-primary:hover:not(:disabled){opacity:0.88;}
+    .btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border2);}
+    .btn-ghost:hover:not(:disabled){background:rgba(255,255,255,0.1);}
+    .btn-danger{background:var(--danger);color:white;}
+    .btn-danger:hover:not(:disabled){opacity:0.88;}
+    .btn-sm{padding:6px 12px;font-size:12px;}
+    .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+    label{display:block;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text-soft);margin-bottom:5px;}
+    input,textarea,select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 12px;font-family:inherit;font-size:13px;outline:none;transition:border 0.15s;margin-bottom:12px;}
+    input:focus,textarea:focus,select:focus{border-color:var(--accent);}
+    textarea{resize:vertical;line-height:1.5;}
+    .result{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-size:12px;font-family:monospace;line-height:1.7;white-space:pre-wrap;word-break:break-all;color:#b8a888;margin-top:14px;min-height:48px;}
+    .result.ok{border-color:rgba(61,122,82,0.35);color:#5daa82;}
+    .result.err{border-color:rgba(139,32,16,0.35);color:#e05040;}
+    .log-row{padding:10px 0;border-bottom:1px solid var(--border);}
+    .log-row:last-child{border-bottom:none;}
+    .log-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+    .log-detail{font-size:13px;font-weight:500;}
+    .log-meta{font-size:11px;color:var(--text-soft);margin-top:2px;}
+    .log-id{font-family:monospace;font-size:10px;color:var(--text-faint);margin-top:2px;}
+    .danger-zone{border:1px solid rgba(139,32,16,0.3);border-radius:var(--radius);padding:18px;background:rgba(139,32,16,0.06);}
+    .danger-title{font-size:13px;font-weight:600;color:#e05040;margin-bottom:6px;}
+    .danger-desc{font-size:12px;color:var(--text-soft);margin-bottom:14px;line-height:1.5;}
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:10px 20px;font-size:13px;opacity:0;pointer-events:none;transition:all 0.22s;z-index:999;white-space:nowrap;box-shadow:0 8px 32px rgba(0,0,0,0.5);}
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+    .toast.ok{border-color:rgba(61,122,82,0.5);color:#5daa82;}
+    .toast.err{border-color:rgba(139,32,16,0.5);color:#e05040;}
+    code{font-family:monospace;font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px;}
   </style>
 </head>
 <body>
@@ -288,23 +287,21 @@ function adminHTML(key) {
     </button>
   </div>
 </nav>
-
 <main class="main">
   <div class="page active" id="page-stats">
     <div class="page-title">Stats</div>
     <div class="page-sub">Overview of logs and users</div>
     <div class="stat-grid">
-      <div class="stat-box"><div class="stat-num" id="sTotal">—</div><div class="stat-lbl">Total logs</div></div>
-      <div class="stat-box"><div class="stat-num" id="sMike">—</div><div class="stat-lbl">Mike's logs</div></div>
-      <div class="stat-box"><div class="stat-num" id="sJenna">—</div><div class="stat-lbl">Jenna's logs</div></div>
+      <div class="stat-box"><div class="stat-num" id="sTotal">--</div><div class="stat-lbl">Total logs</div></div>
+      <div class="stat-box"><div class="stat-num" id="sMike">--</div><div class="stat-lbl">Mike's logs</div></div>
+      <div class="stat-box"><div class="stat-num" id="sJenna">--</div><div class="stat-lbl">Jenna's logs</div></div>
     </div>
     <div class="card">
       <div class="card-label">Telegram status</div>
       <div id="usersList"><span style="color:var(--text-soft);font-size:13px">Loading...</span></div>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="loadStats()">↻ Refresh</button>
+    <button class="btn btn-ghost btn-sm" onclick="loadStats()">Refresh</button>
   </div>
-
   <div class="page" id="page-reminders">
     <div class="page-title">Send Reminder</div>
     <div class="page-sub">Manually trigger a Telegram reminder</div>
@@ -318,29 +315,25 @@ function adminHTML(key) {
     </div>
     <div class="card">
       <div class="card-label">Custom message</div>
-      <label>Message (leave empty to use saved wording)</label>
+      <label>Message</label>
       <input id="customMsg" placeholder="Hey! Don't forget to log today..." />
       <div class="btn-row">
-        <button class="btn btn-ghost btn-sm" onclick="triggerCustom('mike')">→ Mike</button>
-        <button class="btn btn-ghost btn-sm" onclick="triggerCustom('jenna')">→ Jenna</button>
+        <button class="btn btn-ghost btn-sm" onclick="triggerCustom('mike')">Send to Mike</button>
+        <button class="btn btn-ghost btn-sm" onclick="triggerCustom('jenna')">Send to Jenna</button>
       </div>
     </div>
     <div class="result" id="reminderResult">Trigger a reminder to see results.</div>
   </div>
-
   <div class="page" id="page-cron">
     <div class="page-title">Test Cron</div>
     <div class="page-sub">Run the reminder cron manually to debug timing and delivery</div>
     <div class="card">
       <div class="card-label">Run cron now</div>
-      <p style="font-size:13px;color:var(--text-soft);margin-bottom:14px;line-height:1.5">
-        Calls <code>/api/cron</code> using your admin key. Shows why each user did or didn't get a reminder — local time, reminder time, and whether they already logged today.
-      </p>
-      <button class="btn btn-primary" id="cronBtn" onclick="testCron()">▶ Run cron now</button>
+      <p style="font-size:13px;color:var(--text-soft);margin-bottom:14px;line-height:1.5">Calls <code>/api/cron</code> using your admin key. Shows why each user did or did not get a notification.</p>
+      <button class="btn btn-primary" id="cronBtn" onclick="testCron()">Run cron now</button>
     </div>
     <div class="result" id="cronResult">Click run to see cron output.</div>
   </div>
-
   <div class="page" id="page-wording">
     <div class="page-title">Reminder Wording</div>
     <div class="page-sub">Customize bot messages. One per line — picked randomly each time.</div>
@@ -349,16 +342,15 @@ function adminHTML(key) {
         <div><label>User</label><select id="wordingUser" onchange="loadWording()"><option value="mike">Mike</option><option value="jenna">Jenna</option></select></div>
         <div><label>Type</label><select id="wordingType" onchange="loadWording()"><option value="auto">Scheduled (auto)</option><option value="manual">Manual trigger</option></select></div>
       </div>
-      <label>Messages — one per line</label>
-      <textarea id="wordingMessages" rows="7" placeholder="Hey! No logs yet today...&#10;Time to check in on your gut!"></textarea>
+      <label>Messages - one per line</label>
+      <textarea id="wordingMessages" rows="7" placeholder="Hey! No logs yet today..."></textarea>
       <div class="btn-row">
-        <button class="btn btn-ghost btn-sm" onclick="loadWording()">↻ Reload</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadWording()">Reload</button>
         <button class="btn btn-primary btn-sm" onclick="saveWording()">Save</button>
       </div>
     </div>
     <div class="result" id="wordingResult" style="display:none"></div>
   </div>
-
   <div class="page" id="page-logs">
     <div class="page-title">Raw Logs</div>
     <div class="page-sub">Last 50 entries from Firestore</div>
@@ -367,20 +359,19 @@ function adminHTML(key) {
     </div>
     <div id="logsList"><span style="color:var(--text-soft);font-size:13px">Click load to fetch logs.</span></div>
   </div>
-
   <div class="page" id="page-danger">
     <div class="page-title">Danger Zone</div>
-    <div class="page-sub">Destructive actions — be careful</div>
+    <div class="page-sub">Destructive actions</div>
     <div class="card" style="margin-bottom:16px">
       <div class="card-label">Delete single entry</div>
-      <label>Document ID (copy from Raw Logs)</label>
-      <input id="deleteId" placeholder="abc123xyz..." />
+      <label>Document ID</label>
+      <input id="deleteId" placeholder="Get from Raw Logs" />
       <button class="btn btn-danger btn-sm" onclick="deleteSingle()">Delete entry</button>
       <div class="result" id="deleteResult" style="display:none"></div>
     </div>
     <div class="danger-zone">
       <div class="danger-title">Reset all data</div>
-      <div class="danger-desc">Permanently deletes every log. Only use to wipe test data. No undo.</div>
+      <div class="danger-desc">Permanently deletes every log. No undo.</div>
       <button class="btn btn-danger" onclick="resetAll()">Reset all logs</button>
       <div class="result" id="resetResult" style="display:none"></div>
     </div>
@@ -389,185 +380,203 @@ function adminHTML(key) {
 </div>
 <div class="toast" id="toast"></div>
 <script>
-const KEY = "${key}";
-let toastTimer;
+var KEY = '` + k + `';
+var toastTimer;
 
 function nav(page, btn) {
-  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-  document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
-  document.getElementById("page-" + page).classList.add("active");
-  btn.classList.add("active");
-  if (page === "stats") loadStats();
-  if (page === "wording") loadWording();
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active');});
+  document.getElementById('page-' + page).classList.add('active');
+  btn.classList.add('active');
+  if (page === 'stats') loadStats();
+  if (page === 'wording') loadWording();
 }
 
-function toast(msg, type = "ok") {
-  const el = document.getElementById("toast");
-  el.textContent = msg; el.className = "toast show " + type;
+function toast(msg, type) {
+  type = type || 'ok';
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.className = "toast", 2800);
+  toastTimer = setTimeout(function(){ el.className = 'toast'; }, 2800);
 }
 
 function setBtn(id, loading, orig) {
-  const b = document.getElementById(id); if (!b) return;
+  var b = document.getElementById(id);
+  if (!b) return;
   b.disabled = loading;
-  b.textContent = loading ? "Loading..." : (orig || b.dataset.orig || b.textContent);
   if (orig) b.dataset.orig = orig;
+  b.textContent = loading ? 'Loading...' : (b.dataset.orig || b.textContent);
 }
 
-async function api(action, body = {}) {
-  const res = await fetch("/api/admin?key=" + KEY + "&action=" + action, {
-    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)
-  });
-  return res.json();
+function api(action, body) {
+  body = body || {};
+  return fetch('/api/admin?key=' + KEY + '&action=' + action, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){ return r.json(); });
 }
 
 function showResult(id, data, msg) {
-  const el = document.getElementById(id); if (!el) return;
-  el.style.display = "block";
-  el.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  el.className = "result " + (data?.ok !== false ? "ok" : "err");
-  toast(msg || (data?.ok ? "Done" : "Failed"), data?.ok !== false ? "ok" : "err");
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  el.className = 'result ' + (data && data.ok !== false ? 'ok' : 'err');
+  toast(msg || (data && data.ok ? 'Done' : 'Failed'), data && data.ok !== false ? 'ok' : 'err');
 }
 
-async function loadStats() {
-  const data = await api("stats");
-  if (!data?.ok) { toast("Failed to load stats", "err"); return; }
-  const s = data.stats;
-  document.getElementById("sTotal").textContent = s.totalLogs;
-  const mk = s.users?.find(u => u.id === "mike");
-  const jn = s.users?.find(u => u.id === "jenna");
-  document.getElementById("sMike").textContent  = mk?.logs ?? "—";
-  document.getElementById("sJenna").textContent = jn?.logs ?? "—";
-  document.getElementById("usersList").innerHTML = (s.users || []).map(u => \`
-    <div class="user-row">
-      <div>
-        <div class="user-name">\${u.id === "mike" ? "Mike" : "Jenna"}</div>
-        <div class="user-sub">\${u.telegramUsername ? "@" + u.telegramUsername : "Not linked"} · \${u.logs} logs</div>
-      </div>
-      <span class="pill \${u.chatId === "✓ linked" ? "pill-good" : "pill-mute"}">\${u.chatId === "✓ linked" ? "Linked" : "Not linked"}</span>
-    </div>
-  \`).join("");
-  toast("Stats loaded");
+function loadStats() {
+  api('stats').then(function(data) {
+    if (!data || !data.ok) { toast('Failed to load stats', 'err'); return; }
+    var s = data.stats;
+    document.getElementById('sTotal').textContent = s.totalLogs;
+    var mk = s.users && s.users.find(function(u){ return u.id === 'mike'; });
+    var jn = s.users && s.users.find(function(u){ return u.id === 'jenna'; });
+    document.getElementById('sMike').textContent  = mk ? mk.logs : '--';
+    document.getElementById('sJenna').textContent = jn ? jn.logs : '--';
+    var html = '';
+    (s.users || []).forEach(function(u) {
+      html += '<div class="user-row">'
+        + '<div><div class="user-name">' + (u.id === 'mike' ? 'Mike' : 'Jenna') + '</div>'
+        + '<div class="user-sub">' + (u.telegramUsername ? '@' + u.telegramUsername : 'Not linked') + ' &middot; ' + u.logs + ' logs</div></div>'
+        + '<span class="pill ' + (u.chatId === '\u2713 linked' ? 'pill-good' : 'pill-mute') + '">'
+        + (u.chatId === '\u2713 linked' ? 'Linked' : 'Not linked') + '</span>'
+        + '</div>';
+    });
+    document.getElementById('usersList').innerHTML = html;
+    toast('Stats loaded');
+  });
 }
 
-async function triggerReminder(user) {
-  const users = user === "both" ? ["mike","jenna"] : [user];
-  let sent = [];
-  for (const u of users) {
-    const d = await api("trigger_reminder", { user: u });
-    if (d?.ok) sent.push(u.charAt(0).toUpperCase()+u.slice(1));
-  }
-  showResult("reminderResult", { ok: sent.length > 0, sent },
-    sent.length ? "Sent to " + sent.join(" & ") : "Failed to send");
+function triggerReminder(user) {
+  var users = user === 'both' ? ['mike','jenna'] : [user];
+  var sent = [];
+  var promises = users.map(function(u) {
+    return api('trigger_reminder', {user: u}).then(function(d) {
+      if (d && d.ok) sent.push(u.charAt(0).toUpperCase() + u.slice(1));
+    });
+  });
+  Promise.all(promises).then(function() {
+    var msg = sent.length ? 'Sent to ' + sent.join(' & ') : 'Failed to send';
+    showResult('reminderResult', {ok: sent.length > 0}, msg);
+  });
 }
 
-async function triggerCustom(user) {
-  const msg = document.getElementById("customMsg").value.trim();
-  const d = await api("trigger_reminder", { user, message: msg || undefined });
-  showResult("reminderResult", d, d?.ok ? "Sent to " + user : "Failed");
+function triggerCustom(user) {
+  var msg = document.getElementById('customMsg').value.trim();
+  api('trigger_reminder', {user: user, message: msg || undefined}).then(function(d) {
+    showResult('reminderResult', d, d && d.ok ? 'Sent to ' + user : 'Failed');
+  });
 }
 
-async function testCron() {
-  setBtn("cronBtn", true, "▶ Run cron now");
-  try {
-    const res  = await fetch("/api/cron?key=" + KEY);
-    const data = await res.json();
-    const el   = document.getElementById("cronResult");
-    if (data?.results) {
-      el.className = "result ok";
-      el.textContent = data.results.map(r => {
-        let lines = r.user.toUpperCase();
+function testCron() {
+  setBtn('cronBtn', true, 'Run cron now');
+  fetch('/api/cron?key=' + KEY).then(function(r){ return r.json(); }).then(function(data) {
+    var el = document.getElementById('cronResult');
+    if (data && data.results) {
+      el.className = 'result ok';
+      var lines = data.results.map(function(r) {
+        var out = r.user.toUpperCase();
         if (r.error) {
-          lines += "\n  error: " + r.error;
+          out += '\n  error: ' + r.error;
         } else if (r.actions) {
-          r.actions.forEach(a => {
-            lines += "\n  [" + a.type + "] sent: " + a.sent;
-            if (a.reason) lines += " — " + a.reason;
-            if (a.msg)    lines += "\n    msg: " + a.msg;
+          r.actions.forEach(function(a) {
+            out += '\n  [' + a.type + '] sent: ' + a.sent;
+            if (a.reason) out += ' -- ' + a.reason;
+            if (a.msg)    out += '\n    msg: ' + a.msg;
           });
         } else {
-          lines += "\n  sent: " + r.sent;
-          if (r.reason) lines += " — " + r.reason;
+          out += '\n  sent: ' + r.sent;
+          if (r.reason) out += ' -- ' + r.reason;
         }
-        return lines;
-      }).join("\n\n");
-      const totalSent = data.results.reduce((acc, r) => {
+        return out;
+      });
+      el.textContent = lines.join('\n\n');
+      var totalSent = data.results.reduce(function(acc, r) {
         if (!r.actions) return acc;
-        return acc + r.actions.filter(a => a.sent).length;
+        return acc + r.actions.filter(function(a){ return a.sent; }).length;
       }, 0);
-      toast("Cron ran — " + totalSent + " notification(s) sent");
+      toast('Cron ran -- ' + totalSent + ' sent');
     } else {
-      el.className = "result err";
+      el.className = 'result err';
       el.textContent = JSON.stringify(data, null, 2);
-      toast("Unexpected cron response", "err");
+      toast('Unexpected response', 'err');
     }
-  } catch(e) {
-    showResult("cronResult", { ok:false }, "Request failed: " + e.message);
-  } finally {
-    setBtn("cronBtn", false);
-  }
+  }).catch(function(e) {
+    showResult('cronResult', {ok:false}, 'Request failed: ' + e.message);
+  }).finally(function() {
+    setBtn('cronBtn', false);
+  });
 }
 
-async function loadWording() {
-  const data = await api("get_wording");
-  if (!data?.ok) { toast("Failed to load wording", "err"); return; }
-  const user = document.getElementById("wordingUser").value;
-  const type = document.getElementById("wordingType").value;
-  const msgs = type === "auto" ? data[user]?.auto : data[user]?.manual;
-  document.getElementById("wordingMessages").value = (msgs || []).join("\\n");
-  if (msgs?.length) toast(msgs.length + " messages loaded");
+function loadWording() {
+  api('get_wording').then(function(data) {
+    if (!data || !data.ok) { toast('Failed to load wording', 'err'); return; }
+    var user = document.getElementById('wordingUser').value;
+    var type = document.getElementById('wordingType').value;
+    var msgs = type === 'auto' ? data[user] && data[user].auto : data[user] && data[user].manual;
+    document.getElementById('wordingMessages').value = (msgs || []).join('\n');
+    if (msgs && msgs.length) toast(msgs.length + ' messages loaded');
+  });
 }
 
-async function saveWording() {
-  const user = document.getElementById("wordingUser").value;
-  const type = document.getElementById("wordingType").value;
-  const msgs = document.getElementById("wordingMessages").value.split("\\n").map(m=>m.trim()).filter(Boolean);
-  if (!msgs.length) { toast("Enter at least one message", "err"); return; }
-  const data = await api("update_wording", { user, type, messages: msgs });
-  showResult("wordingResult", data, data?.ok ? "Saved " + msgs.length + " messages" : "Save failed");
+function saveWording() {
+  var user = document.getElementById('wordingUser').value;
+  var type = document.getElementById('wordingType').value;
+  var msgs = document.getElementById('wordingMessages').value.split('\n').map(function(m){ return m.trim(); }).filter(Boolean);
+  if (!msgs.length) { toast('Enter at least one message', 'err'); return; }
+  api('update_wording', {user: user, type: type, messages: msgs}).then(function(data) {
+    showResult('wordingResult', data, data && data.ok ? 'Saved ' + msgs.length + ' messages' : 'Save failed');
+  });
 }
 
-async function loadLogs() {
-  const data = await api("raw_logs");
-  if (!data?.ok) { toast("Failed to load logs", "err"); return; }
-  const c = document.getElementById("logsList");
-  if (!data.logs.length) { c.innerHTML = '<span style="color:var(--text-soft);font-size:13px">No logs found.</span>'; return; }
-  c.innerHTML = data.logs.map(l => \`
-    <div class="log-row">
-      <div class="log-main">
-        <div>
-          <div class="log-detail">\${l.user==="mike"?"Mike":"Jenna"} · T\${l.bristolType} · \${l.volume||"normal"} · \${l.color||"brown"}\${l.symptoms?.includes("none")?"":" · "+l.symptoms?.join(", ")}</div>
-          <div class="log-meta">\${l.timestamp||"—"}\${l.notes?' · "'+l.notes+'"':""}</div>
-          <div class="log-id">\${l.id}</div>
-        </div>
-        <button class="btn btn-danger btn-sm" onclick="confirmDelete('\${l.id}')">Delete</button>
-      </div>
-    </div>
-  \`).join("");
-  toast(data.count + " logs loaded");
+function loadLogs() {
+  api('raw_logs').then(function(data) {
+    if (!data || !data.ok) { toast('Failed to load logs', 'err'); return; }
+    var c = document.getElementById('logsList');
+    if (!data.logs.length) { c.innerHTML = '<span style="color:var(--text-soft);font-size:13px">No logs found.</span>'; return; }
+    var html = '';
+    data.logs.forEach(function(l) {
+      var syms = l.symptoms && !l.symptoms.includes('none') ? ' &middot; ' + l.symptoms.join(', ') : '';
+      html += '<div class="log-row"><div class="log-main">'
+        + '<div>'
+        + '<div class="log-detail">' + (l.user === 'mike' ? 'Mike' : 'Jenna') + ' &middot; T' + l.bristolType + ' &middot; ' + (l.volume || 'normal') + ' &middot; ' + (l.color || 'brown') + syms + '</div>'
+        + '<div class="log-meta">' + (l.timestamp || '--') + (l.notes ? ' &middot; "' + l.notes + '"' : '') + '</div>'
+        + '<div class="log-id">' + l.id + '</div>'
+        + '</div>'
+        + '<button class="btn btn-danger btn-sm" onclick="confirmDelete(\'' + l.id + '\')">Delete</button>'
+        + '</div></div>';
+    });
+    c.innerHTML = html;
+    toast(data.count + ' logs loaded');
+  });
 }
 
-async function confirmDelete(id) {
-  if (!confirm("Delete " + id + "?")) return;
-  const d = await api("delete_entry", { id });
-  if (d?.ok) { toast("Deleted"); loadLogs(); }
-  else toast("Delete failed", "err");
+function confirmDelete(id) {
+  if (!confirm('Delete ' + id + '?')) return;
+  api('delete_entry', {id: id}).then(function(d) {
+    if (d && d.ok) { toast('Deleted'); loadLogs(); }
+    else toast('Delete failed', 'err');
+  });
 }
 
-async function deleteSingle() {
-  const id = document.getElementById("deleteId").value.trim();
-  if (!id) { toast("Enter a document ID", "err"); return; }
-  if (!confirm("Delete " + id + "? Cannot be undone.")) return;
-  const d = await api("delete_entry", { id });
-  showResult("deleteResult", d, d?.ok ? "Deleted" : "Failed");
+function deleteSingle() {
+  var id = document.getElementById('deleteId').value.trim();
+  if (!id) { toast('Enter a document ID', 'err'); return; }
+  if (!confirm('Delete ' + id + '? Cannot be undone.')) return;
+  api('delete_entry', {id: id}).then(function(d) {
+    showResult('deleteResult', d, d && d.ok ? 'Deleted' : 'Failed');
+  });
 }
 
-async function resetAll() {
-  const c = prompt("Type RESET_ALL_DATA to confirm:");
+function resetAll() {
+  var c = prompt('Type RESET_ALL_DATA to confirm:');
   if (!c) return;
-  const d = await api("reset_data", { confirm: c });
-  showResult("resetResult", d, d?.ok ? d.deleted + " logs deleted" : "Failed or wrong confirmation");
+  api('reset_data', {confirm: c}).then(function(d) {
+    showResult('resetResult', d, d && d.ok ? d.deleted + ' logs deleted' : 'Failed or wrong confirmation');
+  });
 }
 
 loadStats();
