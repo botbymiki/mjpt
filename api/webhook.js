@@ -360,13 +360,60 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     if (!session.data.symptoms || session.data.symptoms.length === 0) {
       session.data.symptoms = ["none"];
     }
-    session.step = "notes";
+    session.step = "when";
 
     await editMsg(chatId, msgId,
-      `Almost done! Any notes? (Reply with text, or tap Skip)`, {
+      `Got it! When was this?`, {
       inline_keyboard: [[
-        { text: "Skip", callback_data: "log:notes:skip" }
+        { text: "Right now",  callback_data: "log:when:now"       },
+        { text: "Yesterday",  callback_data: "log:when:yesterday" }
       ]]
+    });
+    return;
+  }
+
+  if (field === "when") {
+    if (value === "now") {
+      session.data.backdated = false;
+      session.step = "notes";
+      await editMsg(chatId, msgId,
+        `Any notes? (Reply with text, or tap Skip)`, {
+        inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
+      });
+    } else {
+      // Yesterday — ask for time
+      session.data.backdated = true;
+      session.step = "time";
+      await editMsg(chatId, msgId,
+        `What time yesterday? (HH:MM, 24hr — e.g. 08:30 or 21:00)`, {
+        inline_keyboard: [[{ text: "Skip (use midnight)", callback_data: "log:time:00:00" }]]
+      });
+    }
+    return;
+  }
+
+  if (field === "time") {
+    // value is HH:MM or "00:00" from skip
+    const timeParts = value.split(":");
+    const hh = parseInt(timeParts[0]) || 0;
+    const mm = parseInt(timeParts[1]) || 0;
+
+    // Build yesterday's date in user's timezone
+    const tz        = session.data.user === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
+    const nowLocal  = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+    const yesterday = new Date(nowLocal);
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(hh, mm, 0, 0);
+
+    // Convert back to UTC for Firestore
+    const utcOffset  = new Date().getTime() - new Date(new Date().toLocaleString("en-US", { timeZone: tz })).getTime();
+    const utcDate    = new Date(yesterday.getTime() + utcOffset);
+    session.data.backdatedTimestamp = utcDate;
+
+    session.step = "notes";
+    await editMsg(chatId, msgId,
+      `Logging for yesterday at ${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}.\n\nAny notes? (Reply or tap Skip)`, {
+      inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
     });
     return;
   }
@@ -381,12 +428,20 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 
 // ── SAVE LOG ──
 async function saveLog(chatId, data, msgId) {
-  data.timestamp   = Timestamp.now();
+  // Use backdated time if set, otherwise now
+  if (data.backdatedTimestamp) {
+    data.timestamp = Timestamp.fromDate(data.backdatedTimestamp);
+    delete data.backdatedTimestamp;
+    delete data.backdated;
+  } else {
+    data.timestamp = Timestamp.now();
+  }
+
   data.notes       = data.notes    || "";
   data.symptoms    = data.symptoms || ["none"];
   data.color       = data.color    || "brown";
   data.volume      = data.volume   || "normal";
-  data.bristolType = parseInt(data.bristolType) || 4;  // ensure integer
+  data.bristolType = parseInt(data.bristolType) || 4;
 
   try {
     await db.collection("logs").add(data);
@@ -419,33 +474,91 @@ async function saveLog(chatId, data, msgId) {
 // ── CROSS NOTIFICATION ──
 async function notifyPartner(loggedBy, bristolType, volume, symptoms) {
   try {
-    const partnerKey = loggedBy === "mike" ? "jenna" : "mike";
-    const loggerName = loggedBy === "mike" ? "Mike" : "Jenna";
-    const b          = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
-    const vol        = formatVolume(volume);
-    const hasSymp    = symptoms && !symptoms.includes("none") && symptoms.length > 0;
-    const sympNote   = hasSymp ? ` (with ${symptoms.join(", ")})` : "";
+    const partnerKey  = loggedBy === "mike" ? "jenna" : "mike";
+    const loggerName  = loggedBy === "mike" ? "Mike" : "Jenna";
+    const b           = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
+    const vol         = formatVolume(volume);
+    const hasSymp     = symptoms && !symptoms.includes("none") && symptoms.length > 0;
+    const sympList    = hasSymp ? symptoms.join(", ") : "";
+    const hasBlood    = symptoms?.includes("blood");
+    const hasCramps   = symptoms?.includes("cramps");
+    const hasBloating = symptoms?.includes("bloating");
+    const t           = parseInt(bristolType);
+    const isHard      = t <= 2;
+    const isSoft      = t === 4;
+    const isLoose     = t >= 6;
 
-    const messages = [
-      `${loggerName} just dropped a ${b.label}${sympNote}. How's your gut doing? 👀`,
-      `Gut report: ${loggerName} logged a ${b.label}, ${vol}${sympNote}. Your turn soon?`,
-      `${loggerName}'s bowels have spoken — ${b.label}, ${vol}. Stay hydrated out there 💧`,
-      `Breaking news: ${loggerName} just visited the throne. ${b.label} · ${vol}${sympNote} 📰`,
-      `${loggerName} is ${b.label === "Soft" ? "absolutely killing it" : b.label === "Liquid" ? "having a rough time" : "doing their thing"} gut-wise today. ${b.label}, ${vol}.`,
-      `PSA: ${loggerName} just logged${sympNote ? " and had " + symptoms.join(", ") : ""}. Drink water, eat fibre, and check in on them 🫶`,
-      `${loggerName} just pooped. ${b.label}, ${vol}. The data doesn't lie 📊`,
-      `Friendly reminder that ${loggerName} just logged a ${b.label}${sympNote}. Maybe ask how they're feeling?`,
-      `${vol} ${b.label} alert from ${loggerName}!${hasSymp ? ` They had ${symptoms.join(", ")} — check on them.` : " All good over there."}`,
-      `${loggerName}'s gut update: ${b.label}, ${vol}${sympNote}. ${b.label === "Soft" ? "Peak performance." : b.label === "Rock" || b.label === "Pellet" ? "Tell them to drink more water!" : b.label === "Liquid" ? "Maybe check on them?" : "Nothing to worry about."}`
-    ];
+    let pool;
 
-    const msg = messages[Math.floor(Math.random() * messages.length)];
+    if (hasBlood) {
+      pool = [
+        `${loggerName} logged blood today 🩸 Please check in on them — worth paying attention to.`,
+        `Heads up: ${loggerName} reported blood in their log. Make sure they're okay 🩸`
+      ];
+    } else if (isHard && hasCramps) {
+      pool = [
+        `${loggerName} is having a rough one — ${b.label} with cramps 😣 Maybe remind them to drink more water?`,
+        `Ouch. ${loggerName} logged a ${b.label} with cramps. Suggest a warm drink ☕`,
+        `${loggerName}'s gut is struggling. ${b.label} + cramps. They could use some support 💙`
+      ];
+    } else if (isHard) {
+      pool = [
+        `${loggerName} logged a ${b.label} — things seem backed up 🪨 Remind them to hydrate!`,
+        `${b.label} alert from ${loggerName}. Tell them: more water, more fibre 💧`,
+        `${loggerName}'s report: ${b.label}, ${vol}. Classic dehydration situation — nudge them!`
+      ];
+    } else if (isLoose && hasSymp) {
+      pool = [
+        `${loggerName} logged a ${b.label} with ${sympList} 😰 Not a great gut day for them`,
+        `Gut SOS from ${loggerName} — ${b.label} + ${sympList}. Check in? 💙`,
+        `${loggerName} is having a rough gut day. ${b.label}, ${sympList}. Hope they feel better 🌿`
+      ];
+    } else if (isLoose) {
+      pool = [
+        `${loggerName}'s gut is running loose — ${b.label} 💧 Hope they're staying hydrated`,
+        `${loggerName} logged a ${b.label}. Make sure they're drinking enough 💧`,
+        `Watery situation at ${loggerName}'s end. ${b.label}, ${vol}. Check in? 🌊`
+      ];
+    } else if (isSoft && !hasSymp) {
+      pool = [
+        `${loggerName} just dropped a perfect ${b.label} ✨ Gut goals honestly`,
+        `Peak gut performance from ${loggerName} — ${b.label}, ${vol}. Absolutely thriving 🌟`,
+        `${loggerName}'s gut is operating at full capacity. ${b.label} · ${vol} · No symptoms. Elite.`,
+        `Perfect log from ${loggerName}! ${b.label}, smooth, no drama. Living well 💚`,
+        `${loggerName} ate their fibre and it shows. ${b.label}, ${vol}. Proud of them 🥦`
+      ];
+    } else if (isSoft && hasSymp) {
+      pool = [
+        `${loggerName} had a ${b.label} today but with ${sympList}. Good consistency, watch those symptoms`,
+        `Mixed report — ${b.label} which is great, but ${sympList} tagged along 🤔`,
+        `${loggerName}'s consistency is on point (${b.label}) but ${sympList} showed up. Hope it passes!`
+      ];
+    } else if (hasBloating) {
+      pool = [
+        `${loggerName} logged with bloating 🫧 Might want to avoid dairy/gluten for a bit`,
+        `${loggerName}'s gut is feeling gassy. ${b.label} + bloating. Check on them! 🫧`
+      ];
+    } else if (hasSymp) {
+      pool = [
+        `${loggerName} logged a ${b.label} with ${sympList}. Not their best gut day 🤍`,
+        `Gut update: ${b.label}, ${vol}, with ${sympList}. Hope they feel better!`,
+        `${loggerName}'s report: ${b.label} · ${vol} · ${sympList}. Keep an eye 👀`
+      ];
+    } else {
+      pool = [
+        `${loggerName} just logged — ${b.label}, ${vol}. All good 📊`,
+        `${loggerName}'s gut has reported in. ${b.label} · ${vol} · No complaints`,
+        `FYI: ${loggerName} just visited the throne. ${b.label}, ${vol}, nothing notable`,
+        `Daily update: ${loggerName} logged a ${b.label}. The data doesn't lie 📈`,
+        `${loggerName} is keeping up with the logs — ${b.label}, ${vol} today`
+      ];
+    }
 
+    const msg = pool[Math.floor(Math.random() * pool.length)];
     const partnerSnap = await db.collection("users").doc(partnerKey).get();
     if (!partnerSnap.exists) return;
     const partnerChatId = partnerSnap.data()?.chatId;
     if (!partnerChatId) return;
-
     await sendMsg(partnerChatId, msg);
   } catch (err) {
     console.error("Cross notification failed:", err);
@@ -466,11 +579,21 @@ function formatVolume(v) {
 
 // ── HANDLE CONVERSATION (text replies during session) ──
 async function handleConversation(chatId, user, text, session) {
+  // Time entry for backdated log
+  if (session.step === "time") {
+    const timeRegex = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+    if (!timeRegex.test(text.trim())) {
+      await sendMsg(chatId, "Please use HH:MM format (e.g. 08:30 or 21:00)");
+      return;
+    }
+    // Re-use the callback handler logic
+    await handleLogCallback(chatId, null, user, "time", text.trim());
+    return;
+  }
+
   if (session.step === "notes") {
     session.data.notes = text;
     await saveLog(chatId, session.data, null);
-    await sendMsg(chatId, `Note added. Logged! ✅`);
-    delete sessions[chatId];
     return;
   }
 }
