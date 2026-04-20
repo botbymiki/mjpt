@@ -175,7 +175,6 @@ async function handleAction(req, res, action) {
 
 // ── ADMIN HTML ──
 function adminHTML(key) {
-  const k = key;
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -380,7 +379,7 @@ function adminHTML(key) {
 </div>
 <div class="toast" id="toast"></div>
 <script>
-var KEY = '` + k + `';
+var KEY = '${key}';
 var toastTimer;
 
 function nav(page, btn) {
