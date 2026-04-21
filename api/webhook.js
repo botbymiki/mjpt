@@ -33,9 +33,50 @@ const BRISTOL = {
 const COLORS = ["brown", "dark_brown", "yellow", "green", "red", "black", "pale"];
 const SYMPTOMS = ["none", "bloating", "urgency", "cramps", "blood"];
 
-// ── CONVERSATION STATE (in-memory, resets on cold start) ──
-// For production, store in Firestore if needed
-const sessions = {};
+// ── CONVERSATION STATE (Firestore-backed — survives serverless cold starts) ──
+const sessions = {}; // local cache within same invocation only
+
+async function getSession(chatId) {
+  // Check local cache first
+  if (sessions[chatId]) return sessions[chatId];
+  // Fall back to Firestore
+  try {
+    const snap = await db.collection("sessions").doc(String(chatId)).get();
+    if (snap.exists) {
+      const data = snap.data();
+      // Expire sessions older than 30 minutes
+      const age = Date.now() - (data.updatedAt || 0);
+      if (age < 30 * 60 * 1000) {
+        sessions[chatId] = data;
+        return data;
+      }
+      // Expired — delete it
+      await db.collection("sessions").doc(String(chatId)).delete();
+    }
+  } catch (err) {
+    console.error("getSession error:", err);
+  }
+  return null;
+}
+
+async function setSession(chatId, session) {
+  session.updatedAt = Date.now();
+  sessions[chatId] = session;
+  try {
+    await db.collection("sessions").doc(String(chatId)).set(session);
+  } catch (err) {
+    console.error("setSession error:", err);
+  }
+}
+
+async function deleteSession(chatId) {
+  delete sessions[chatId];
+  try {
+    await db.collection("sessions").doc(String(chatId)).delete();
+  } catch (err) {
+    console.error("deleteSession error:", err);
+  }
+}
 
 
 // ── MAIN HANDLER ──
@@ -128,7 +169,7 @@ async function handleMessage(msg) {
   }
 
   // Handle conversation state
-  const session = sessions[chatId];
+  const session = await getSession(chatId);
   if (session) {
     await handleConversation(chatId, user, text, session);
     return;
@@ -186,7 +227,8 @@ async function handleQuickLog(chatId, user) {
 
 // ── /log — start guided flow ──
 async function handleLogStart(chatId, user) {
-  sessions[chatId] = { step: "bristol", data: { user: user.id, source: "telegram", quick: false } };
+  const session = { step: "bristol", data: { user: user.id, source: "telegram", quick: false } };
+  await setSession(chatId, session);
 
   await sendMsg(chatId, `Full Log Entry\n\nWhat's the Bristol type?`, {
     inline_keyboard: [
@@ -270,14 +312,17 @@ async function handleCallback(cb) {
 
 // ── LOG CALLBACK FLOW ──
 async function handleLogCallback(chatId, msgId, user, field, value) {
-  const session = sessions[chatId] || { step: field, data: { user: user?.id, source: "telegram", quick: false } };
-  sessions[chatId] = session;
+  let session = await getSession(chatId);
+  if (!session) {
+    session = { step: field, data: { user: user?.id, source: "telegram", quick: false } };
+  }
+  await setSession(chatId, session);
 
   if (field === "bristol") {
     session.data.bristolType = parseInt(value);
     session.step = "color";
 
-    await editMsg(chatId, msgId, `Type ${value} selected.\n\nWhat color?`, {
+    await replyMsg(chatId, msgId, `Type ${value} selected.\n\nWhat color?`, {
       inline_keyboard: [
         [
           { text: "Brown",      callback_data: "log:color:brown"      },
@@ -292,6 +337,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
         ]
       ]
     });
+    await setSession(chatId, session);
     return;
   }
 
@@ -299,7 +345,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     session.data.color = value;
     session.step = "volume";
 
-    await editMsg(chatId, msgId, `${value} noted.\n\nWhat's the volume?`, {
+    await replyMsg(chatId, msgId, `${value} noted.\n\nWhat's the volume?`, {
       inline_keyboard: [
         [
           { text: "Child Size", callback_data: "log:volume:child_size" },
@@ -314,6 +360,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
         ]
       ]
     });
+    await setSession(chatId, session);
     return;
   }
 
@@ -321,7 +368,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     session.data.volume = value;
     session.step = "symptoms";
 
-    await editMsg(chatId, msgId, `Got it.\n\nAny symptoms? (tap all that apply, then Done)`, {
+    await replyMsg(chatId, msgId, `Got it.\n\nAny symptoms? (tap all that apply, then Done)`, {
       inline_keyboard: [
         [
           { text: "None",     callback_data: "log:symptoms:none"     },
@@ -339,6 +386,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     });
 
     session.data.symptoms = [];
+    await setSession(chatId, session);
     return;
   }
 
@@ -353,6 +401,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
       session.data.symptoms = session.data.symptoms.filter(s => s !== "none");
     }
     // Don't advance — let user tap Done
+    await setSession(chatId, session);
     return;
   }
 
@@ -360,20 +409,74 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     if (!session.data.symptoms || session.data.symptoms.length === 0) {
       session.data.symptoms = ["none"];
     }
-    session.step = "notes";
+    session.step = "when";
 
-    await editMsg(chatId, msgId,
-      `Almost done! Any notes? (Reply with text, or tap Skip)`, {
+    await replyMsg(chatId, msgId,
+      `Got it! When was this?`, {
       inline_keyboard: [[
-        { text: "Skip", callback_data: "log:notes:skip" }
+        { text: "Right now",  callback_data: "log:when:now"       },
+        { text: "Yesterday",  callback_data: "log:when:yesterday" }
       ]]
     });
+    await setSession(chatId, session);
+    return;
+  }
+
+  if (field === "when") {
+    if (value === "now") {
+      session.data.backdated = false;
+      session.step = "notes";
+      await replyMsg(chatId, msgId,
+        `Any notes? (Reply with text, or tap Skip)`, {
+        inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
+      });
+    } else {
+      // Yesterday — ask for time
+      session.data.backdated = true;
+      session.step = "time";
+      await replyMsg(chatId, msgId,
+        `What time yesterday? (HH:MM, 24hr — e.g. 08:30 or 21:00)`, {
+        inline_keyboard: [[{ text: "Skip (use midnight)", callback_data: "log:time:00:00" }]]
+      });
+    }
+    await setSession(chatId, session);
+    return;
+  }
+
+  if (field === "time") {
+    const timeParts = value.split(":");
+    const hh = parseInt(timeParts[0]) || 0;
+    const mm = parseInt(timeParts[1]) || 0;
+
+    const tz        = session.data.user === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
+    const nowLocal  = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+    const yesterday = new Date(nowLocal);
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(hh, mm, 0, 0);
+
+    const utcOffset = new Date().getTime() - new Date(new Date().toLocaleString("en-US", { timeZone: tz })).getTime();
+    const utcDate   = new Date(yesterday.getTime() + utcOffset);
+    session.data.backdatedTimestamp = utcDate;
+    session.step = "notes";
+
+    const timeStr   = `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+    const replyText = `Got it — logging for yesterday at ${timeStr}.\n\nAny notes? (Reply with text, or tap Skip)`;
+    const keyboard  = [[{ text: "Skip", callback_data: "log:notes:skip" }]];
+
+    if (msgId) {
+      await replyMsg(chatId, msgId, replyText, keyboard);
+    } else {
+      await sendMsg(chatId, replyText, keyboard);
+    }
+
+    await setSession(chatId, session);
     return;
   }
 
   if (field === "notes") {
     session.data.notes = value === "skip" ? "" : value;
     await saveLog(chatId, session.data, msgId);
+    await setSession(chatId, session);
     return;
   }
 }
@@ -381,12 +484,20 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 
 // ── SAVE LOG ──
 async function saveLog(chatId, data, msgId) {
-  data.timestamp   = Timestamp.now();
+  // Use backdated time if set, otherwise now
+  if (data.backdatedTimestamp) {
+    data.timestamp = Timestamp.fromDate(data.backdatedTimestamp);
+    delete data.backdatedTimestamp;
+    delete data.backdated;
+  } else {
+    data.timestamp = Timestamp.now();
+  }
+
   data.notes       = data.notes    || "";
   data.symptoms    = data.symptoms || ["none"];
   data.color       = data.color    || "brown";
   data.volume      = data.volume   || "normal";
-  data.bristolType = parseInt(data.bristolType) || 4;  // ensure integer
+  data.bristolType = parseInt(data.bristolType) || 4;
 
   try {
     await db.collection("logs").add(data);
@@ -412,40 +523,98 @@ async function saveLog(chatId, data, msgId) {
     await sendMsg(chatId, "Failed to save log. Try again.");
   }
 
-  delete sessions[chatId];
+  await deleteSession(chatId);
 }
 
 
 // ── CROSS NOTIFICATION ──
 async function notifyPartner(loggedBy, bristolType, volume, symptoms) {
   try {
-    const partnerKey = loggedBy === "mike" ? "jenna" : "mike";
-    const loggerName = loggedBy === "mike" ? "Mike" : "Jenna";
-    const b          = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
-    const vol        = formatVolume(volume);
-    const hasSymp    = symptoms && !symptoms.includes("none") && symptoms.length > 0;
-    const sympNote   = hasSymp ? ` (with ${symptoms.join(", ")})` : "";
+    const partnerKey  = loggedBy === "mike" ? "jenna" : "mike";
+    const loggerName  = loggedBy === "mike" ? "Mike" : "Jenna";
+    const b           = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
+    const vol         = formatVolume(volume);
+    const hasSymp     = symptoms && !symptoms.includes("none") && symptoms.length > 0;
+    const sympList    = hasSymp ? symptoms.join(", ") : "";
+    const hasBlood    = symptoms?.includes("blood");
+    const hasCramps   = symptoms?.includes("cramps");
+    const hasBloating = symptoms?.includes("bloating");
+    const t           = parseInt(bristolType);
+    const isHard      = t <= 2;
+    const isSoft      = t === 4;
+    const isLoose     = t >= 6;
 
-    const messages = [
-      `${loggerName} just dropped a ${b.label}${sympNote}. How's your gut doing? 👀`,
-      `Gut report: ${loggerName} logged a ${b.label}, ${vol}${sympNote}. Your turn soon?`,
-      `${loggerName}'s bowels have spoken — ${b.label}, ${vol}. Stay hydrated out there 💧`,
-      `Breaking news: ${loggerName} just visited the throne. ${b.label} · ${vol}${sympNote} 📰`,
-      `${loggerName} is ${b.label === "Soft" ? "absolutely killing it" : b.label === "Liquid" ? "having a rough time" : "doing their thing"} gut-wise today. ${b.label}, ${vol}.`,
-      `PSA: ${loggerName} just logged${sympNote ? " and had " + symptoms.join(", ") : ""}. Drink water, eat fibre, and check in on them 🫶`,
-      `${loggerName} just pooped. ${b.label}, ${vol}. The data doesn't lie 📊`,
-      `Friendly reminder that ${loggerName} just logged a ${b.label}${sympNote}. Maybe ask how they're feeling?`,
-      `${vol} ${b.label} alert from ${loggerName}!${hasSymp ? ` They had ${symptoms.join(", ")} — check on them.` : " All good over there."}`,
-      `${loggerName}'s gut update: ${b.label}, ${vol}${sympNote}. ${b.label === "Soft" ? "Peak performance." : b.label === "Rock" || b.label === "Pellet" ? "Tell them to drink more water!" : b.label === "Liquid" ? "Maybe check on them?" : "Nothing to worry about."}`
-    ];
+    let pool;
 
-    const msg = messages[Math.floor(Math.random() * messages.length)];
+    if (hasBlood) {
+      pool = [
+        `${loggerName} logged blood today 🩸 Please check in on them — worth paying attention to.`,
+        `Heads up: ${loggerName} reported blood in their log. Make sure they're okay 🩸`
+      ];
+    } else if (isHard && hasCramps) {
+      pool = [
+        `${loggerName} is having a rough one — ${b.label} with cramps 😣 Maybe remind them to drink more water?`,
+        `Ouch. ${loggerName} logged a ${b.label} with cramps. Suggest a warm drink ☕`,
+        `${loggerName}'s gut is struggling. ${b.label} + cramps. They could use some support 💙`
+      ];
+    } else if (isHard) {
+      pool = [
+        `${loggerName} logged a ${b.label} — things seem backed up 🪨 Remind them to hydrate!`,
+        `${b.label} alert from ${loggerName}. Tell them: more water, more fibre 💧`,
+        `${loggerName}'s report: ${b.label}, ${vol}. Classic dehydration situation — nudge them!`
+      ];
+    } else if (isLoose && hasSymp) {
+      pool = [
+        `${loggerName} logged a ${b.label} with ${sympList} 😰 Not a great gut day for them`,
+        `Gut SOS from ${loggerName} — ${b.label} + ${sympList}. Check in? 💙`,
+        `${loggerName} is having a rough gut day. ${b.label}, ${sympList}. Hope they feel better 🌿`
+      ];
+    } else if (isLoose) {
+      pool = [
+        `${loggerName}'s gut is running loose — ${b.label} 💧 Hope they're staying hydrated`,
+        `${loggerName} logged a ${b.label}. Make sure they're drinking enough 💧`,
+        `Watery situation at ${loggerName}'s end. ${b.label}, ${vol}. Check in? 🌊`
+      ];
+    } else if (isSoft && !hasSymp) {
+      pool = [
+        `${loggerName} just dropped a perfect ${b.label} ✨ Gut goals honestly`,
+        `Peak gut performance from ${loggerName} — ${b.label}, ${vol}. Absolutely thriving 🌟`,
+        `${loggerName}'s gut is operating at full capacity. ${b.label} · ${vol} · No symptoms. Elite.`,
+        `Perfect log from ${loggerName}! ${b.label}, smooth, no drama. Living well 💚`,
+        `${loggerName} ate their fibre and it shows. ${b.label}, ${vol}. Proud of them 🥦`
+      ];
+    } else if (isSoft && hasSymp) {
+      pool = [
+        `${loggerName} had a ${b.label} today but with ${sympList}. Good consistency, watch those symptoms`,
+        `Mixed report — ${b.label} which is great, but ${sympList} tagged along 🤔`,
+        `${loggerName}'s consistency is on point (${b.label}) but ${sympList} showed up. Hope it passes!`
+      ];
+    } else if (hasBloating) {
+      pool = [
+        `${loggerName} logged with bloating 🫧 Might want to avoid dairy/gluten for a bit`,
+        `${loggerName}'s gut is feeling gassy. ${b.label} + bloating. Check on them! 🫧`
+      ];
+    } else if (hasSymp) {
+      pool = [
+        `${loggerName} logged a ${b.label} with ${sympList}. Not their best gut day 🤍`,
+        `Gut update: ${b.label}, ${vol}, with ${sympList}. Hope they feel better!`,
+        `${loggerName}'s report: ${b.label} · ${vol} · ${sympList}. Keep an eye 👀`
+      ];
+    } else {
+      pool = [
+        `${loggerName} just logged — ${b.label}, ${vol}. All good 📊`,
+        `${loggerName}'s gut has reported in. ${b.label} · ${vol} · No complaints`,
+        `FYI: ${loggerName} just visited the throne. ${b.label}, ${vol}, nothing notable`,
+        `Daily update: ${loggerName} logged a ${b.label}. The data doesn't lie 📈`,
+        `${loggerName} is keeping up with the logs — ${b.label}, ${vol} today`
+      ];
+    }
 
+    const msg = pool[Math.floor(Math.random() * pool.length)];
     const partnerSnap = await db.collection("users").doc(partnerKey).get();
     if (!partnerSnap.exists) return;
     const partnerChatId = partnerSnap.data()?.chatId;
     if (!partnerChatId) return;
-
     await sendMsg(partnerChatId, msg);
   } catch (err) {
     console.error("Cross notification failed:", err);
@@ -466,11 +635,20 @@ function formatVolume(v) {
 
 // ── HANDLE CONVERSATION (text replies during session) ──
 async function handleConversation(chatId, user, text, session) {
+  // Time entry for backdated log
+  if (session.step === "time") {
+    const timeRegex = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+    if (!timeRegex.test(text.trim())) {
+      await sendMsg(chatId, "Please use HH:MM format (e.g. 08:30 or 21:00)");
+      return;
+    }
+    await handleLogCallback(chatId, null, user, "time", text.trim());
+    return;
+  }
+
   if (session.step === "notes") {
     session.data.notes = text;
     await saveLog(chatId, session.data, null);
-    await sendMsg(chatId, `Note added. Logged! ✅`);
-    delete sessions[chatId];
     return;
   }
 }
@@ -685,6 +863,16 @@ async function sendMsg(chatId, text, inlineKeyboard = null, extra = {}) {
   });
 
   return res.json();
+}
+
+
+// ── REPLY HELPER — uses editMsg if msgId present, sendMsg otherwise ──
+async function replyMsg(chatId, msgId, text, keyboard = null, extra = {}) {
+  if (msgId) {
+    return editMsg(chatId, msgId, text, keyboard, extra);
+  } else {
+    return sendMsg(chatId, text, keyboard, extra);
+  }
 }
 
 async function editMsg(chatId, msgId, text, inlineKeyboard = null, extra = {}) {

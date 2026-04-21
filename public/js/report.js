@@ -24,7 +24,7 @@ export async function generateReport(user, period, logs) {
   const topType  = topEntry ? parseInt(topEntry[0]) : null;
   const topLabel = topType ? (BRISTOL[topType]?.label || `Type ${topType}`) : "—";
 
-  const periodLabel = { week:"This Week", month:"This Month", today:"Today", year:"This Year" }[period] || "This Week";
+  const periodLabel = { week:"This Week", month:"This Month", today:"Today", year:"This Year", all:"All Time" }[period] || "This Week";
   const dateRange   = `${formatDateShort(start)} – ${formatDateShort(end)}`;
   const userName    = user === "both" ? "Combined" : USERS[user]?.name || user;
 
