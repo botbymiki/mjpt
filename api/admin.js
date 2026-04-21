@@ -354,203 +354,7 @@ function adminHTML(key) {
     </div>`;
 
   // JS is built as a plain string — no template literals, no backticks
-  const js = `
-    window.onerror = function(msg, src, line, col, err) {
-      var b = document.getElementById('errBanner');
-      b.style.display = 'block';
-      b.textContent = 'JS ERROR: ' + msg + ' (line ' + line + ')';
-    };
-
-    var KEY = '${key}';
-    var toastTimer;
-
-    function navTo(page, btn) {
-      var pages = document.querySelectorAll('.page');
-      for (var i=0; i<pages.length; i++) pages[i].classList.remove('active');
-      var btns = document.querySelectorAll('.nav-btn');
-      for (var i=0; i<btns.length; i++) btns[i].classList.remove('active');
-      document.getElementById('page-' + page).classList.add('active');
-      btn.classList.add('active');
-      if (page === 'stats') loadStats();
-      if (page === 'wording') loadWording();
-    }
-
-    function showToast(msg, type) {
-      var el = document.getElementById('toast');
-      el.textContent = msg;
-      el.className = 'toast show ' + (type || 'ok');
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(function(){ el.className = 'toast'; }, 2800);
-    }
-
-    function callApi(action, body) {
-      return fetch('/api/admin?key=' + KEY + '&action=' + action, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body || {})
-      }).then(function(r) { return r.json(); });
-    }
-
-    function showResult(id, data, msg) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.style.display = 'block';
-      el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-      var ok = data && data.ok !== false;
-      el.className = 'result ' + (ok ? 'ok' : 'err');
-      showToast(msg || (ok ? 'Done' : 'Failed'), ok ? 'ok' : 'err');
-    }
-
-    function loadStats() {
-      callApi('stats').then(function(data) {
-        if (!data || !data.ok) { showToast('Failed to load stats', 'err'); return; }
-        var s = data.stats;
-        document.getElementById('sTotal').textContent = s.totalLogs;
-        var users = s.users || [];
-        var mk = users.filter(function(u){ return u.id === 'mike'; })[0];
-        var jn = users.filter(function(u){ return u.id === 'jenna'; })[0];
-        document.getElementById('sMike').textContent  = mk ? mk.logs : '--';
-        document.getElementById('sJenna').textContent = jn ? jn.logs : '--';
-        var html = '';
-        users.forEach(function(u) {
-          var linked = u.chatId === '\u2713 linked';
-          html += '<div class="user-row">'
-            + '<div><div class="user-name">' + (u.id === 'mike' ? 'Mike' : 'Jenna') + '</div>'
-            + '<div class="user-sub">' + (u.telegramUsername ? '@'+u.telegramUsername : 'No username') + ' &middot; ' + u.logs + ' logs</div></div>'
-            + '<span class="pill ' + (linked ? 'pill-good' : 'pill-mute') + '">' + (linked ? 'Linked' : 'Not linked') + '</span>'
-            + '</div>';
-        });
-        document.getElementById('usersList').innerHTML = html;
-        showToast('Stats loaded');
-      }).catch(function(e){ showToast('Error: '+e.message,'err'); });
-    }
-
-    function triggerReminder(user) {
-      var users = user === 'both' ? ['mike','jenna'] : [user];
-      var sent = [];
-      var pending = users.length;
-      users.forEach(function(u) {
-        callApi('trigger_reminder', {user: u}).then(function(d) {
-          if (d && d.ok) sent.push(u.charAt(0).toUpperCase()+u.slice(1));
-          pending--;
-          if (pending === 0) showResult('reminderResult', {ok: sent.length>0}, sent.length ? 'Sent to '+sent.join(' & ') : 'Failed');
-        });
-      });
-    }
-
-    function triggerCustom(user) {
-      var msg = document.getElementById('customMsg').value.trim();
-      callApi('trigger_reminder', {user: user, message: msg || undefined}).then(function(d) {
-        showResult('reminderResult', d, d&&d.ok ? 'Sent to '+user : 'Failed');
-      });
-    }
-
-    function testCron() {
-      var btn = document.getElementById('cronBtn');
-      btn.disabled = true; btn.textContent = 'Running...';
-      fetch('/api/cron?key=' + KEY)
-        .then(function(r){ return r.json(); })
-        .then(function(data) {
-          var el = document.getElementById('cronResult');
-          if (data && data.results) {
-            el.className = 'result ok';
-            var out = '';
-            data.results.forEach(function(r) {
-              out += r.user.toUpperCase() + '\n';
-              if (r.error) {
-                out += '  error: ' + r.error + '\n';
-              } else if (r.actions) {
-                r.actions.forEach(function(a) {
-                  out += '  ['+a.type+'] sent: '+a.sent;
-                  if (a.reason) out += ' -- '+a.reason;
-                  out += '\n';
-                  if (a.msg) out += '    msg: '+a.msg+'\n';
-                });
-              }
-              out += '\n';
-            });
-            el.textContent = out;
-            showToast('Cron ran');
-          } else {
-            el.className = 'result err';
-            el.textContent = JSON.stringify(data, null, 2);
-            showToast('Unexpected response', 'err');
-          }
-        })
-        .catch(function(e){ showResult('cronResult', {ok:false}, 'Failed: '+e.message); })
-        .finally(function(){ btn.disabled=false; btn.textContent='Run cron now'; });
-    }
-
-    function loadWording() {
-      var user = document.getElementById('wordingUser').value;
-      var type = document.getElementById('wordingType').value;
-      callApi('get_wording').then(function(data) {
-        if (!data || !data.ok) { showToast('Failed','err'); return; }
-        var msgs = type === 'auto' ? (data[user]&&data[user].auto) : (data[user]&&data[user].manual);
-        document.getElementById('wordingMessages').value = (msgs||[]).join('\n');
-        showToast((msgs&&msgs.length||0) + ' messages loaded');
-      });
-    }
-
-    function saveWording() {
-      var user = document.getElementById('wordingUser').value;
-      var type = document.getElementById('wordingType').value;
-      var msgs = document.getElementById('wordingMessages').value.split('\n').map(function(m){return m.trim();}).filter(Boolean);
-      if (!msgs.length) { showToast('Enter at least one message','err'); return; }
-      callApi('update_wording', {user:user, type:type, messages:msgs}).then(function(data) {
-        showResult('wordingResult', data, data&&data.ok ? 'Saved '+msgs.length+' messages' : 'Failed');
-      });
-    }
-
-    function loadLogs() {
-      callApi('raw_logs').then(function(data) {
-        if (!data || !data.ok) { showToast('Failed','err'); return; }
-        var c = document.getElementById('logsList');
-        if (!data.logs || !data.logs.length) { c.innerHTML = 'No logs.'; return; }
-        var html = '';
-        data.logs.forEach(function(l) {
-          var syms = l.symptoms && !l.symptoms.includes('none') ? ' &middot; '+l.symptoms.join(', ') : '';
-          html += '<div class="log-row"><div class="log-main">'
-            +'<div>'
-            +'<div class="log-detail">'+(l.user==='mike'?'Mike':'Jenna')+' &middot; T'+l.bristolType+' &middot; '+(l.volume||'normal')+' &middot; '+(l.color||'brown')+syms+'</div>'
-            +'<div class="log-meta">'+(l.timestamp||'--')+(l.notes?' &middot; "'+l.notes+'"':'')+'</div>'
-            +'<div class="log-id">'+l.id+'</div>'
-            +'</div>'
-            +'<button class="btn btn-danger btn-sm" onclick="doDelete(\''+l.id+'\')">Del</button>'
-            +'</div></div>';
-        });
-        c.innerHTML = html;
-        showToast(data.count+' logs loaded');
-      });
-    }
-
-    function doDelete(id) {
-      if (!confirm('Delete '+id+'?')) return;
-      callApi('delete_entry',{id:id}).then(function(d){
-        if(d&&d.ok){showToast('Deleted');loadLogs();}
-        else showToast('Failed','err');
-      });
-    }
-
-    function deleteSingle() {
-      var id = document.getElementById('deleteId').value.trim();
-      if (!id) { showToast('Enter an ID','err'); return; }
-      if (!confirm('Delete '+id+'?')) return;
-      callApi('delete_entry',{id:id}).then(function(d){
-        showResult('deleteResult', d, d&&d.ok?'Deleted':'Failed');
-      });
-    }
-
-    function resetAll() {
-      var c = prompt('Type RESET_ALL_DATA to confirm:');
-      if (!c) return;
-      callApi('reset_data',{confirm:c}).then(function(d){
-        showResult('resetResult', d, d&&d.ok?d.deleted+' logs deleted':'Failed');
-      });
-    }
-
-    loadStats();
-  `;
+  const js = buildAdminJS(key);
 
   return '<!DOCTYPE html><html><head><meta charset="UTF-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
@@ -565,4 +369,184 @@ function adminHTML(key) {
     + '<div class="toast" id="toast"></div>'
     + '<script>' + js + '</scr' + 'ipt>'
     + '</body></html>';
+}
+
+
+// ── BUILD ADMIN JS ──
+// Written as plain string concatenation — no template literals,
+// no escaping issues regardless of content.
+function buildAdminJS(key) {
+  const K = JSON.stringify(key);
+  return [
+    "window.onerror=function(m,s,l){var b=document.getElementById('errBanner');b.style.display='block';b.textContent='JS ERROR: '+m+' (line '+l+')';};",
+    "var KEY=" + K + ";",
+    "var toastTimer;",
+
+    "function navTo(page,btn){",
+    "  var ps=document.querySelectorAll('.page');",
+    "  for(var i=0;i<ps.length;i++)ps[i].classList.remove('active');",
+    "  var bs=document.querySelectorAll('.nav-btn');",
+    "  for(var i=0;i<bs.length;i++)bs[i].classList.remove('active');",
+    "  document.getElementById('page-'+page).classList.add('active');",
+    "  btn.classList.add('active');",
+    "  if(page==='stats')loadStats();",
+    "  if(page==='wording')loadWording();",
+    "}",
+
+    "function showToast(msg,type){",
+    "  var el=document.getElementById('toast');",
+    "  el.textContent=msg;el.className='toast show '+(type||'ok');",
+    "  clearTimeout(toastTimer);",
+    "  toastTimer=setTimeout(function(){el.className='toast';},2800);",
+    "}",
+
+    "function callApi(action,body){",
+    "  return fetch('/api/admin?key='+KEY+'&action='+action,{",
+    "    method:'POST',headers:{'Content-Type':'application/json'},",
+    "    body:JSON.stringify(body||{})",
+    "  }).then(function(r){return r.json();});",
+    "}",
+
+    "function showResult(id,data,msg){",
+    "  var el=document.getElementById(id);if(!el)return;",
+    "  el.style.display='block';",
+    "  el.textContent=typeof data==='string'?data:JSON.stringify(data,null,2);",
+    "  var ok=data&&data.ok!==false;",
+    "  el.className='result '+(ok?'ok':'err');",
+    "  showToast(msg||(ok?'Done':'Failed'),ok?'ok':'err');",
+    "}",
+
+    "function loadStats(){",
+    "  callApi('stats').then(function(data){",
+    "    if(!data||!data.ok){showToast('Failed to load stats','err');return;}",
+    "    var s=data.stats;",
+    "    document.getElementById('sTotal').textContent=s.totalLogs;",
+    "    var users=s.users||[];",
+    "    var mk=users.filter(function(u){return u.id==='mike';})[0];",
+    "    var jn=users.filter(function(u){return u.id==='jenna';})[0];",
+    "    document.getElementById('sMike').textContent=mk?mk.logs:'--';",
+    "    document.getElementById('sJenna').textContent=jn?jn.logs:'--';",
+    "    var html='';",
+    "    users.forEach(function(u){",
+    "      var linked=u.chatId==='\\u2713 linked';",
+    "      html+='<div class=\"user-row\"><div><div class=\"user-name\">'+(u.id==='mike'?'Mike':'Jenna')+'</div>'",
+    "        +'<div class=\"user-sub\">'+(u.telegramUsername?'@'+u.telegramUsername:'No username')+'&middot;'+u.logs+' logs</div></div>'",
+    "        +'<span class=\"pill '+(linked?'pill-good':'pill-mute')+'\">'+(linked?'Linked':'Not linked')+'</span></div>';",
+    "    });",
+    "    document.getElementById('usersList').innerHTML=html;",
+    "    showToast('Stats loaded');",
+    "  }).catch(function(e){showToast('Error: '+e.message,'err');});",
+    "}",
+
+    "function triggerReminder(user){",
+    "  var users=user==='both'?['mike','jenna']:[user];",
+    "  var sent=[];var pending=users.length;",
+    "  users.forEach(function(u){",
+    "    callApi('trigger_reminder',{user:u}).then(function(d){",
+    "      if(d&&d.ok)sent.push(u.charAt(0).toUpperCase()+u.slice(1));",
+    "      pending--;",
+    "      if(pending===0)showResult('reminderResult',{ok:sent.length>0},sent.length?'Sent to '+sent.join(' & '):'Failed');",
+    "    });",
+    "  });",
+    "}",
+
+    "function triggerCustom(user){",
+    "  var msg=document.getElementById('customMsg').value.trim();",
+    "  callApi('trigger_reminder',{user:user,message:msg||undefined}).then(function(d){",
+    "    showResult('reminderResult',d,d&&d.ok?'Sent to '+user:'Failed');",
+    "  });",
+    "}",
+
+    "function testCron(){",
+    "  var btn=document.getElementById('cronBtn');",
+    "  btn.disabled=true;btn.textContent='Running...';",
+    "  fetch('/api/cron?key='+KEY).then(function(r){return r.json();}).then(function(data){",
+    "    var el=document.getElementById('cronResult');",
+    "    if(data&&data.results){",
+    "      el.className='result ok';",
+    "      var out='';",
+    "      data.results.forEach(function(r){",
+    "        out+=r.user.toUpperCase()+'\\n';",
+    "        if(r.error){out+='  error: '+r.error+'\\n';}",
+    "        else if(r.actions){r.actions.forEach(function(a){",
+    "          out+='  ['+a.type+'] sent:'+a.sent+(a.reason?' -- '+a.reason:'')+'\\n';",
+    "          if(a.msg)out+='    msg: '+a.msg+'\\n';",
+    "        });}",
+    "        out+='\\n';",
+    "      });",
+    "      el.textContent=out;",
+    "      showToast('Cron ran');",
+    "    }else{el.className='result err';el.textContent=JSON.stringify(data,null,2);showToast('Unexpected','err');}",
+    "  }).catch(function(e){showResult('cronResult',{ok:false},'Failed: '+e.message);})",
+    "  .finally(function(){btn.disabled=false;btn.textContent='Run cron now';});",
+    "}",
+
+    "function loadWording(){",
+    "  var user=document.getElementById('wordingUser').value;",
+    "  var type=document.getElementById('wordingType').value;",
+    "  callApi('get_wording').then(function(data){",
+    "    if(!data||!data.ok){showToast('Failed','err');return;}",
+    "    var msgs=type==='auto'?(data[user]&&data[user].auto):(data[user]&&data[user].manual);",
+    "    document.getElementById('wordingMessages').value=(msgs||[]).join('\\n');",
+    "    showToast((msgs&&msgs.length||0)+' messages loaded');",
+    "  });",
+    "}",
+
+    "function saveWording(){",
+    "  var user=document.getElementById('wordingUser').value;",
+    "  var type=document.getElementById('wordingType').value;",
+    "  var msgs=document.getElementById('wordingMessages').value.split('\\n').map(function(m){return m.trim();}).filter(Boolean);",
+    "  if(!msgs.length){showToast('Enter at least one message','err');return;}",
+    "  callApi('update_wording',{user:user,type:type,messages:msgs}).then(function(data){",
+    "    showResult('wordingResult',data,data&&data.ok?'Saved '+msgs.length+' messages':'Failed');",
+    "  });",
+    "}",
+
+    "function loadLogs(){",
+    "  callApi('raw_logs').then(function(data){",
+    "    if(!data||!data.ok){showToast('Failed','err');return;}",
+    "    var c=document.getElementById('logsList');",
+    "    if(!data.logs||!data.logs.length){c.innerHTML='No logs.';return;}",
+    "    var html='';",
+    "    data.logs.forEach(function(l){",
+    "      var syms=l.symptoms&&!l.symptoms.includes('none')?' &middot; '+l.symptoms.join(', '):'';",
+    "      html+='<div class=\"log-row\"><div class=\"log-main\"><div>'",
+    "        +'<div class=\"log-detail\">'+(l.user==='mike'?'Mike':'Jenna')+'&middot;T'+l.bristolType+'&middot;'+(l.volume||'normal')+'&middot;'+(l.color||'brown')+syms+'</div>'",
+    "        +'<div class=\"log-meta\">'+(l.timestamp||'--')+(l.notes?' &middot;'+l.notes:'')+'</div>'",
+    "        +'<div class=\"log-id\">'+l.id+'</div>'",
+    "        +'</div><button class=\"btn btn-danger btn-sm\" onclick=\"doDelete(this.dataset.id)\" data-id=\"'+l.id+'\">Del</button>'",
+    "        +'</div></div>';",
+    "    });",
+    "    c.innerHTML=html;",
+    "    showToast(data.count+' logs loaded');",
+    "  });",
+    "}",
+
+    "function doDelete(id){",
+    "  if(!confirm('Delete '+id+'?'))return;",
+    "  callApi('delete_entry',{id:id}).then(function(d){",
+    "    if(d&&d.ok){showToast('Deleted');loadLogs();}",
+    "    else showToast('Failed','err');",
+    "  });",
+    "}",
+
+    "function deleteSingle(){",
+    "  var id=document.getElementById('deleteId').value.trim();",
+    "  if(!id){showToast('Enter an ID','err');return;}",
+    "  if(!confirm('Delete '+id+'?'))return;",
+    "  callApi('delete_entry',{id:id}).then(function(d){",
+    "    showResult('deleteResult',d,d&&d.ok?'Deleted':'Failed');",
+    "  });",
+    "}",
+
+    "function resetAll(){",
+    "  var c=prompt('Type RESET_ALL_DATA to confirm:');",
+    "  if(!c)return;",
+    "  callApi('reset_data',{confirm:c}).then(function(d){",
+    "    showResult('resetResult',d,d&&d.ok?d.deleted+' logs deleted':'Failed or wrong confirmation');",
+    "  });",
+    "}",
+
+    "loadStats();"
+  ].join('\n');
 }
