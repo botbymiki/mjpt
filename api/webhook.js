@@ -322,7 +322,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     session.data.bristolType = parseInt(value);
     session.step = "color";
 
-    await editMsg(chatId, msgId, `Type ${value} selected.\n\nWhat color?`, {
+    await replyMsg(chatId, msgId, `Type ${value} selected.\n\nWhat color?`, {
       inline_keyboard: [
         [
           { text: "Brown",      callback_data: "log:color:brown"      },
@@ -345,7 +345,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     session.data.color = value;
     session.step = "volume";
 
-    await editMsg(chatId, msgId, `${value} noted.\n\nWhat's the volume?`, {
+    await replyMsg(chatId, msgId, `${value} noted.\n\nWhat's the volume?`, {
       inline_keyboard: [
         [
           { text: "Child Size", callback_data: "log:volume:child_size" },
@@ -368,7 +368,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     session.data.volume = value;
     session.step = "symptoms";
 
-    await editMsg(chatId, msgId, `Got it.\n\nAny symptoms? (tap all that apply, then Done)`, {
+    await replyMsg(chatId, msgId, `Got it.\n\nAny symptoms? (tap all that apply, then Done)`, {
       inline_keyboard: [
         [
           { text: "None",     callback_data: "log:symptoms:none"     },
@@ -411,7 +411,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     }
     session.step = "when";
 
-    await editMsg(chatId, msgId,
+    await replyMsg(chatId, msgId,
       `Got it! When was this?`, {
       inline_keyboard: [[
         { text: "Right now",  callback_data: "log:when:now"       },
@@ -426,7 +426,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     if (value === "now") {
       session.data.backdated = false;
       session.step = "notes";
-      await editMsg(chatId, msgId,
+      await replyMsg(chatId, msgId,
         `Any notes? (Reply with text, or tap Skip)`, {
         inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
       });
@@ -434,7 +434,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
       // Yesterday — ask for time
       session.data.backdated = true;
       session.step = "time";
-      await editMsg(chatId, msgId,
+      await replyMsg(chatId, msgId,
         `What time yesterday? (HH:MM, 24hr — e.g. 08:30 or 21:00)`, {
         inline_keyboard: [[{ text: "Skip (use midnight)", callback_data: "log:time:00:00" }]]
       });
@@ -444,28 +444,31 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
   }
 
   if (field === "time") {
-    // value is HH:MM or "00:00" from skip
     const timeParts = value.split(":");
     const hh = parseInt(timeParts[0]) || 0;
     const mm = parseInt(timeParts[1]) || 0;
 
-    // Build yesterday's date in user's timezone
     const tz        = session.data.user === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
     const nowLocal  = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
     const yesterday = new Date(nowLocal);
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(hh, mm, 0, 0);
 
-    // Convert back to UTC for Firestore
-    const utcOffset  = new Date().getTime() - new Date(new Date().toLocaleString("en-US", { timeZone: tz })).getTime();
-    const utcDate    = new Date(yesterday.getTime() + utcOffset);
+    const utcOffset = new Date().getTime() - new Date(new Date().toLocaleString("en-US", { timeZone: tz })).getTime();
+    const utcDate   = new Date(yesterday.getTime() + utcOffset);
     session.data.backdatedTimestamp = utcDate;
-
     session.step = "notes";
-    await editMsg(chatId, msgId,
-      `Logging for yesterday at ${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}.\n\nAny notes? (Reply or tap Skip)`, {
-      inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
-    });
+
+    const timeStr   = `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+    const replyText = `Got it — logging for yesterday at ${timeStr}.\n\nAny notes? (Reply with text, or tap Skip)`;
+    const keyboard  = [[{ text: "Skip", callback_data: "log:notes:skip" }]];
+
+    if (msgId) {
+      await replyMsg(chatId, msgId, replyText, keyboard);
+    } else {
+      await sendMsg(chatId, replyText, keyboard);
+    }
+
     await setSession(chatId, session);
     return;
   }
@@ -860,6 +863,16 @@ async function sendMsg(chatId, text, inlineKeyboard = null, extra = {}) {
   });
 
   return res.json();
+}
+
+
+// ── REPLY HELPER — uses editMsg if msgId present, sendMsg otherwise ──
+async function replyMsg(chatId, msgId, text, keyboard = null, extra = {}) {
+  if (msgId) {
+    return editMsg(chatId, msgId, text, keyboard, extra);
+  } else {
+    return sendMsg(chatId, text, keyboard, extra);
+  }
 }
 
 async function editMsg(chatId, msgId, text, inlineKeyboard = null, extra = {}) {
