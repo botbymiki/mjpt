@@ -109,6 +109,10 @@ export function getPeriodRange(period) {
       start.setMonth(0, 1);
       start.setHours(0, 0, 0, 0);
       break;
+    case "all":
+      start.setFullYear(2020, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      break;
   }
 
   return { start, end };

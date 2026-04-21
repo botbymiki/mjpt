@@ -127,7 +127,8 @@ function render() {
   $("#statAvg").textContent        = "—";
   $("#statBristol").textContent    = "—";
   $("#statBristolSub").textContent = "no logs yet";
-  $("#statSymptom").textContent    = "—";
+  $("#statTopSymptom").textContent    = "—";
+  $("#statTopSymptomSub").textContent = "this period";
   $("#scoreNum").textContent       = "—";
   $("#scoreLabel").textContent     = "—";
   $("#scoreBadge").textContent     = "";
@@ -142,7 +143,7 @@ function render() {
   renderBarChart();
   renderBristolDist(logs);
   renderPeakTimes(logs);
-  renderSymptoms(logs);
+  renderTopSymptoms(logs);
   renderInsights(logs);
 }
 
@@ -224,20 +225,30 @@ function renderStats(logs) {
     badgeEl.className   = "badge badge-neutral";
   }
 
-  $("#statSymptom").textContent = `${symptomRate}%`;
-  const symBadge = $("#statSymptomBadge");
-  if (symptomRate === 0) {
-    symBadge.textContent = "None";
-    symBadge.className   = "badge badge-good";
-  } else if (symptomRate < 20) {
-    symBadge.textContent = "Low";
-    symBadge.className   = "badge badge-good";
-  } else if (symptomRate < 50) {
-    symBadge.textContent = "Moderate";
-    symBadge.className   = "badge badge-warn";
+  // Top symptom stat tile
+  const symptomFreq = {};
+  logs.forEach(l => {
+    if (!l.symptoms || l.symptoms.includes("none")) return;
+    l.symptoms.forEach(s => { symptomFreq[s] = (symptomFreq[s] || 0) + 1; });
+  });
+  const topSymEntry = Object.entries(symptomFreq).sort((a, b) => b[1] - a[1])[0];
+
+  const topSymEl    = $("#statTopSymptom");
+  const topSymSub   = $("#statTopSymptomSub");
+  const topSymBadge = $("#statTopSymptomBadge");
+
+  if (topSymEntry) {
+    const symName = topSymEntry[0].charAt(0).toUpperCase() + topSymEntry[0].slice(1);
+    const symPct  = Math.round((topSymEntry[1] / total) * 100);
+    topSymEl.textContent    = symName;
+    topSymSub.textContent   = `${symPct}% of logs`;
+    topSymBadge.textContent = topSymEntry[0] === "blood" ? "⚠ Blood" : symName;
+    topSymBadge.className   = topSymEntry[0] === "blood" ? "badge badge-danger" : "badge badge-warn";
   } else {
-    symBadge.textContent = "High";
-    symBadge.className   = "badge badge-danger";
+    topSymEl.textContent    = "None";
+    topSymSub.textContent   = "no symptoms logged";
+    topSymBadge.textContent = "Clean";
+    topSymBadge.className   = "badge badge-good";
   }
 }
 
@@ -369,33 +380,72 @@ function renderPeakTimes(logs) {
 
 
 // ── SYMPTOMS ──
-function renderSymptoms(logs) {
-  const container = $("#symptomChart");
+function renderTopSymptoms(logs) {
+  const container = $("#topSymptomsCard");
+  if (!container) return;
   container.innerHTML = "";
 
-  const freq = calcSymptomFreq(logs);
+  const total = logs.length;
+  if (total === 0) {
+    container.innerHTML = `<div style="font-size:var(--text-sm);color:var(--color-ink-soft)">No logs this period.</div>`;
+    return;
+  }
 
-  const rows = [
-    { key: "none",     label: "None",     primary: true },
-    { key: "bloating", label: "Bloating", primary: false },
-    { key: "urgency",  label: "Urgency",  primary: false },
-    { key: "cramps",   label: "Cramps",   primary: false },
-    { key: "blood",    label: "Blood",    primary: false }
-  ];
+  // Count symptoms
+  const freq = {};
+  logs.forEach(l => {
+    if (!l.symptoms || l.symptoms.includes("none")) return;
+    l.symptoms.forEach(s => { freq[s] = (freq[s] || 0) + 1; });
+  });
 
-  rows.forEach(row => {
-    const pct = freq[row.key] || 0;
-    const el  = document.createElement("div");
-    el.className = "symptom-row";
+  const hasBlood = freq["blood"] > 0;
+  const ranked   = Object.entries(freq)
+    .filter(([k]) => k !== "blood")
+    .sort((a, b) => b[1] - a[1]);
+
+  if (ranked.length === 0 && !hasBlood) {
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+        <span class="badge badge-good" style="font-size:12px">✓ Clear</span>
+        <span style="font-size:var(--text-sm);color:var(--color-ink-soft)">No symptoms logged this period</span>
+      </div>`;
+    return;
+  }
+
+  const maxCount = ranked[0]?.[1] || 1;
+
+  ranked.slice(0, 5).forEach(([sym, count], i) => {
+    const pct      = Math.round((count / total) * 100);
+    const barWidth = Math.round((count / maxCount) * 100);
+    const label    = sym.charAt(0).toUpperCase() + sym.slice(1);
+    const el       = document.createElement("div");
+    el.style.cssText = "display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--color-border)";
     el.innerHTML = `
-      <div class="sy-name">${row.label}</div>
-      <div class="sy-track">
-        <div class="sy-fill ${row.primary ? "primary" : pct > 0 ? "active" : ""}" style="width:${pct}%"></div>
+      <div style="font-size:12px;font-weight:600;color:var(--color-ink-faint);width:16px;text-align:center">${i+1}</div>
+      <div style="flex:1">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:var(--text-sm);font-weight:600;color:var(--color-ink)">${label}</span>
+          <span style="font-size:var(--text-xs);color:var(--color-ink-soft)">${count}x · ${pct}%</span>
+        </div>
+        <div style="background:var(--color-border);border-radius:100px;height:4px;overflow:hidden">
+          <div style="background:var(--color-accent);height:100%;width:${barWidth}%;border-radius:100px;transition:width 0.4s ease"></div>
+        </div>
       </div>
-      <div class="sy-val" style="${row.primary ? "color:var(--color-good)" : ""}">${pct}%</div>
     `;
     container.appendChild(el);
   });
+
+  // Blood always shown separately at bottom if present
+  if (hasBlood) {
+    const bloodPct = Math.round((freq["blood"] / total) * 100);
+    const el       = document.createElement("div");
+    el.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 0;margin-top:4px";
+    el.innerHTML = `
+      <span class="badge badge-danger" style="font-size:11px">⚠ Blood</span>
+      <span style="font-size:var(--text-sm);color:var(--color-ink)">${freq["blood"]}x logged (${bloodPct}%) — monitor closely</span>
+    `;
+    container.appendChild(el);
+  }
 }
 
 

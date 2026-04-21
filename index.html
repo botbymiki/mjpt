@@ -46,6 +46,7 @@
     <button class="pill" data-period="today">Today</button>
     <button class="pill" data-period="month">This month</button>
     <button class="pill" data-period="year">This year</button>
+    <button class="pill" data-period="all">All time</button>
   </div>
 
   <!-- GUT HEALTH SCORE -->
@@ -90,10 +91,10 @@
       <div class="st-badge"><span class="badge badge-neutral" id="statBristolBadge">&nbsp;</span></div>
     </div>
     <div class="stat-tile">
-      <div class="st-label">Symptom rate</div>
-      <div class="st-val" id="statSymptom"><span class="skeleton" style="display:inline-block;width:40px;height:28px;border-radius:6px">&nbsp;</span></div>
-      <div class="st-sub">of logs flagged</div>
-      <div class="st-badge"><span class="badge badge-neutral" id="statSymptomBadge">&nbsp;</span></div>
+      <div class="st-label">Top Symptom</div>
+      <div class="st-val" id="statTopSymptom"><span class="skeleton" style="display:inline-block;width:60px;height:28px;border-radius:6px">&nbsp;</span></div>
+      <div class="st-sub" id="statTopSymptomSub">this period</div>
+      <div class="st-badge"><span class="badge" id="statTopSymptomBadge">&nbsp;</span></div>
     </div>
   </div>
 
@@ -142,11 +143,11 @@
     </div>
   </div>
 
-  <!-- SYMPTOMS -->
-  <div class="section-label fade-in fade-in-delay-4">Symptom Frequency</div>
+  <!-- TOP SYMPTOMS -->
+  <div class="section-label fade-in fade-in-delay-4">Top Symptoms</div>
   <div class="card fade-in fade-in-delay-4">
-    <div style="font-size:var(--text-sm);font-weight:var(--weight-semi);color:var(--color-ink);margin-bottom:var(--space-4)">Flagged symptoms this period</div>
-    <div id="symptomChart">
+    <div style="font-size:var(--text-sm);font-weight:var(--weight-semi);color:var(--color-ink);margin-bottom:var(--space-4)">Most frequent this period</div>
+    <div id="topSymptomsCard">
       <!-- Rendered by JS -->
     </div>
   </div>
