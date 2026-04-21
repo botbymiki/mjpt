@@ -1,13 +1,13 @@
 // ============================================================
-// MJPT — Telegram Webhook
-// Receives all messages from Telegram and processes them.
-// Deployed as a Vercel serverless function.
+// MJPT — Admin Panel
+// Gated by ?key=ADMIN_KEY env variable.
+// Serves admin UI and handles admin actions.
+// Access: /api/admin?key=your_admin_key
 // ============================================================
 
 const { initializeApp, getApps, cert } = require("firebase-admin/app");
 const { getFirestore, Timestamp }       = require("firebase-admin/firestore");
 
-// ── FIREBASE ADMIN INIT ──
 if (!getApps().length) {
   const serviceAccount = JSON.parse(
     Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8")
@@ -19,868 +19,534 @@ const db  = getFirestore();
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
 const API = `https://api.telegram.org/bot${BOT}`;
 
-// ── BRISTOL INFO ──
-const BRISTOL = {
-  1: { label: "Pellet",  desc: "Separate hard lumps — severe constipation" },
-  2: { label: "Rock",    desc: "Lumpy, hard, difficult to pass" },
-  3: { label: "Crackle", desc: "Sausage with cracks — mostly normal" },
-  4: { label: "Soft",    desc: "Smooth, easy to pass — ideal!" },
-  5: { label: "Blob",    desc: "Soft blobs — lacking fibre" },
-  6: { label: "Mush",    desc: "Fluffy, mushy — mild diarrhea" },
-  7: { label: "Liquid",  desc: "Watery — severe diarrhea" }
-};
 
-const COLORS = ["brown", "dark_brown", "yellow", "green", "red", "black", "pale"];
-const SYMPTOMS = ["none", "bloating", "urgency", "cramps", "blood"];
-
-// ── CONVERSATION STATE (Firestore-backed — survives serverless cold starts) ──
-const sessions = {}; // local cache within same invocation only
-
-async function getSession(chatId) {
-  // Check local cache first
-  if (sessions[chatId]) return sessions[chatId];
-  // Fall back to Firestore
-  try {
-    const snap = await db.collection("sessions").doc(String(chatId)).get();
-    if (snap.exists) {
-      const data = snap.data();
-      // Expire sessions older than 30 minutes
-      const age = Date.now() - (data.updatedAt || 0);
-      if (age < 30 * 60 * 1000) {
-        sessions[chatId] = data;
-        return data;
-      }
-      // Expired — delete it
-      await db.collection("sessions").doc(String(chatId)).delete();
-    }
-  } catch (err) {
-    console.error("getSession error:", err);
-  }
-  return null;
-}
-
-async function setSession(chatId, session) {
-  session.updatedAt = Date.now();
-  sessions[chatId] = session;
-  try {
-    await db.collection("sessions").doc(String(chatId)).set(session);
-  } catch (err) {
-    console.error("setSession error:", err);
-  }
-}
-
-async function deleteSession(chatId) {
-  delete sessions[chatId];
-  try {
-    await db.collection("sessions").doc(String(chatId)).delete();
-  } catch (err) {
-    console.error("deleteSession error:", err);
-  }
-}
-
-
-// ── MAIN HANDLER ──
+// ── HANDLER ──
 module.exports = async (req, res) => {
-  // GET test route
-  if (req.method === "GET") {
-    try {
-      await db.collection("config").doc("settings").get();
-      return res.status(200).json({ ok: true, firebase: "connected" });
-    } catch (err) {
-      return res.status(200).json({ ok: false, firebase: "failed", error: err.message });
-    }
+  const key = req.query.key;
+
+  // Gate
+  if (!key || key !== process.env.ADMIN_KEY) {
+    return res.status(404).send("Not found");
   }
 
-  if (req.method !== "POST") return res.status(200).json({ ok: true });
+  const action = req.query.action;
 
-  try {
-    const update = req.body;
-
-    // Handle callback queries (inline button taps)
-    if (update.callback_query) {
-      await handleCallback(update.callback_query);
-      return res.status(200).json({ ok: true });
-    }
-
-    // Handle messages
-    if (update.message) {
-      await handleMessage(update.message);
-      return res.status(200).json({ ok: true });
-    }
-
-    res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error("WEBHOOK ERROR:", err);
-    res.status(200).json({ ok: true }); // Always return 200 to Telegram
+  // POST actions
+  if (req.method === "POST" && action) {
+    return handleAction(req, res, action);
   }
+
+  // GET — serve admin UI
+  res.setHeader("Content-Type", "text/html");
+  res.send(adminHTML(key));
 };
 
 
-// ── MESSAGE HANDLER ──
-async function handleMessage(msg) {
-  const chatId = msg.chat.id;
-  const text   = (msg.text || "").trim();
+// ── ACTIONS ──
+async function handleAction(req, res, action) {
+  try {
+    switch (action) {
 
-  console.log(`MSG from ${chatId}: ${text}`);
+      case "trigger_reminder": {
+        const { user, message } = req.body || {};
+        const users   = user ? [user] : ["mike", "jenna"];
+        const results = [];
 
-  // Identify user
-  const user = await getUserByChatId(chatId);
-  console.log(`User found:`, user ? user.id : "none");
+        for (const u of users) {
+          const snap   = await db.collection("users").doc(u).get();
+          const chatId = snap.data()?.chatId;
+          if (chatId) {
+            // Use custom message or fallback to default
+            const settingsSnap = await db.collection("config").doc("settings").get();
+            const customMsgs   = settingsSnap.data()?.[u]?.manualReminderMessages;
+            const defaultMsg   = `Hey! Manual reminder from admin. Don't forget to log today! /quick`;
+            const msgs         = message ? [message] : (customMsgs?.length > 0 ? customMsgs : [defaultMsg]);
+            const text         = msgs[Math.floor(Math.random() * msgs.length)];
 
-  if (text.startsWith("/start")) {
-    console.log("Handling /start");
-    await handleStart(chatId, user);
-    return;
-  }
+            await fetch(`${API}/sendMessage`, {
+              method:  "POST",
+              headers: { "Content-Type": "application/json" },
+              body:    JSON.stringify({
+                chat_id:      chatId,
+                text,
+                reply_markup: {
+                  inline_keyboard: [[
+                    { text: "Quick log", callback_data: "log:quick:quick" },
+                    { text: "Full log",  callback_data: "log:full:full"   },
+                    { text: "Skip",      callback_data: "log:skip:skip"   }
+                  ]]
+                }
+              })
+            });
+            results.push({ user: u, sent: true, text });
+          } else {
+            results.push({ user: u, sent: false, reason: "No chat ID" });
+          }
+        }
 
-  if (!user) {
-    await sendMsg(chatId, "I don't know who you are yet. Send /start to register.");
-    return;
-  }
-
-  if (text.startsWith("/quick") || text === "q") {
-    await handleQuickLog(chatId, user);
-    return;
-  }
-
-  if (text.startsWith("/log") || text === "l") {
-    await handleLogStart(chatId, user);
-    return;
-  }
-
-  if (text.startsWith("/history") || text === "/h") {
-    await handleHistory(chatId, user);
-    return;
-  }
-
-  if (text.startsWith("/preset")) {
-    await handlePreset(chatId, user);
-    return;
-  }
-
-  if (text.startsWith("/help")) {
-    await handleHelp(chatId, user);
-    return;
-  }
-
-  if (text.startsWith("/check") || text === "c") {
-    await handleCheck(chatId, user);
-    return;
-  }
-
-  // Handle conversation state
-  const session = await getSession(chatId);
-  if (session) {
-    await handleConversation(chatId, user, text, session);
-    return;
-  }
-
-  await handleHelp(chatId, user);
-}
-
-
-// ── /start ──
-async function handleStart(chatId, existingUser) {
-  console.log("handleStart called, existingUser:", existingUser?.id);
-  if (existingUser) {
-    await sendMsg(chatId, `Welcome back, ${existingUser.name}! 👋\n\nUse /quick to log fast or /log for full entry.`);
-    return;
-  }
-
-  console.log("Sending registration message to:", chatId);
-  const result = await sendMsg(chatId, "Hey! Welcome to mjpt 💩\n\nWho are you?", [
-    [
-      { text: "Mike",  callback_data: "register:mike"  },
-      { text: "Jenna", callback_data: "register:jenna" }
-    ]
-  ]);
-  console.log("sendMsg result:", JSON.stringify(result));
-}
-
-
-// ── /quick ──
-async function handleQuickLog(chatId, user) {
-  const preset = await getUserPreset(user.id);
-
-  const logEntry = {
-    user:        user.id,
-    bristolType: parseInt(preset.bristolType) || 4,
-    color:       preset.color    || "brown",
-    volume:      preset.volume   || "normal",
-    symptoms:    preset.symptoms || ["none"],
-    notes:       "",
-    quick:       true,
-    source:      "telegram",
-    timestamp:   Timestamp.now()
-  };
-
-  await db.collection("logs").add(logEntry);
-
-  const b   = BRISTOL[parseInt(preset.bristolType)] || BRISTOL[4];
-  const vol = formatVolume(preset.volume || "normal");
-  await sendMsg(chatId,
-    `*Logged!* ${b.label}\n\n${vol} · ${preset.color?.replace(/_/g," ") || "brown"} · No symptoms\n\n_Use /log for a full entry_`,
-    null, { parse_mode: "Markdown" }
-  );
-}
-
-
-// ── /log — start guided flow ──
-async function handleLogStart(chatId, user) {
-  const session = { step: "bristol", data: { user: user.id, source: "telegram", quick: false } };
-  await setSession(chatId, session);
-
-  await sendMsg(chatId, `Full Log Entry\n\nWhat's the Bristol type?`, {
-    inline_keyboard: [
-      [
-        { text: "1 — Hard lumps",     callback_data: "log:bristol:1" },
-        { text: "2 — Lumpy sausage",  callback_data: "log:bristol:2" }
-      ],
-      [
-        { text: "3 — Cracked sausage", callback_data: "log:bristol:3" },
-        { text: "4 — Smooth (ideal)",  callback_data: "log:bristol:4" }
-      ],
-      [
-        { text: "5 — Soft blobs",    callback_data: "log:bristol:5" },
-        { text: "6 — Fluffy pieces", callback_data: "log:bristol:6" }
-      ],
-      [
-        { text: "7 — Watery", callback_data: "log:bristol:7" }
-      ]
-    ]
-  }, { parse_mode: "Markdown" });
-}
-
-
-// ── CALLBACK HANDLER ──
-async function handleCallback(cb) {
-  const chatId = cb.message.chat.id;
-  const data   = cb.data;
-  const msgId  = cb.message.message_id;
-  const user   = await getUserByChatId(chatId);
-
-  // Acknowledge callback
-  await fetch(`${API}/answerCallbackQuery`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ callback_query_id: cb.id })
-  });
-
-  // Registration
-  if (data.startsWith("register:")) {
-    const userId = data.split(":")[1];
-    await registerUser(chatId, userId, cb.from);
-    const name = userId === "mike" ? "Mike" : "Jenna";
-    await editMsg(chatId, msgId, `You're all set, ${name}! 🎉\n\nCommands:\n/quick — instant log\n/log — full entry\n/history — recent logs\n/preset — update defaults`);
-    return;
-  }
-
-  // Logging flow
-  if (data.startsWith("log:")) {
-    const parts = data.split(":");
-    const field = parts[1];
-    const value = parts[2];
-
-    // Reminder button shortcuts
-    if (field === "quick") {
-      await handleQuickLog(chatId, user);
-      return;
-    }
-    if (field === "full") {
-      await handleLogStart(chatId, user);
-      return;
-    }
-    if (field === "skip") {
-      await editMsg(chatId, msgId, "No worries! Don't forget to log later. 👋");
-      return;
-    }
-
-    await handleLogCallback(chatId, msgId, user, field, value);
-    return;
-  }
-
-  // Preset flow
-  if (data.startsWith("preset:")) {
-    const parts = data.split(":");
-    const field = parts[1];
-    const value = parts[2];
-    await handlePresetCallback(chatId, msgId, user, field, value);
-    return;
-  }
-}
-
-
-// ── LOG CALLBACK FLOW ──
-async function handleLogCallback(chatId, msgId, user, field, value) {
-  let session = await getSession(chatId);
-  if (!session) {
-    session = { step: field, data: { user: user?.id, source: "telegram", quick: false } };
-  }
-  await setSession(chatId, session);
-
-  if (field === "bristol") {
-    session.data.bristolType = parseInt(value);
-    session.step = "color";
-
-    await editMsg(chatId, msgId, `Type ${value} selected.\n\nWhat color?`, {
-      inline_keyboard: [
-        [
-          { text: "Brown",      callback_data: "log:color:brown"      },
-          { text: "Dark brown", callback_data: "log:color:dark_brown" },
-          { text: "Yellow",     callback_data: "log:color:yellow"     }
-        ],
-        [
-          { text: "Green",     callback_data: "log:color:green" },
-          { text: "Red",       callback_data: "log:color:red"   },
-          { text: "Black",     callback_data: "log:color:black" },
-          { text: "Pale/clay", callback_data: "log:color:pale"  }
-        ]
-      ]
-    });
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (field === "color") {
-    session.data.color = value;
-    session.step = "volume";
-
-    await editMsg(chatId, msgId, `${value} noted.\n\nWhat's the volume?`, {
-      inline_keyboard: [
-        [
-          { text: "Child Size", callback_data: "log:volume:child_size" },
-          { text: "Small",      callback_data: "log:volume:small"      }
-        ],
-        [
-          { text: "Normal",  callback_data: "log:volume:normal"  },
-          { text: "Huge",    callback_data: "log:volume:huge"    }
-        ],
-        [
-          { text: "Gigantic", callback_data: "log:volume:gigantic" }
-        ]
-      ]
-    });
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (field === "volume") {
-    session.data.volume = value;
-    session.step = "symptoms";
-
-    await editMsg(chatId, msgId, `Got it.\n\nAny symptoms? (tap all that apply, then Done)`, {
-      inline_keyboard: [
-        [
-          { text: "None",     callback_data: "log:symptoms:none"     },
-          { text: "Bloating", callback_data: "log:symptoms:bloating" }
-        ],
-        [
-          { text: "Urgency", callback_data: "log:symptoms:urgency" },
-          { text: "Cramps",  callback_data: "log:symptoms:cramps"  }
-        ],
-        [
-          { text: "Blood",   callback_data: "log:symptoms:blood" },
-          { text: "Done",    callback_data: "log:done:done"       }
-        ]
-      ]
-    });
-
-    session.data.symptoms = [];
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (field === "symptoms") {
-    if (value === "none") {
-      session.data.symptoms = ["none"];
-    } else {
-      session.data.symptoms = session.data.symptoms || [];
-      if (!session.data.symptoms.includes(value)) {
-        session.data.symptoms.push(value);
+        return res.json({ ok: true, results });
       }
-      session.data.symptoms = session.data.symptoms.filter(s => s !== "none");
+
+      case "update_wording": {
+        const { user, type, messages } = req.body || {};
+        if (!user || !["mike", "jenna"].includes(user)) return res.status(400).json({ error: "Invalid user" });
+        if (!type || !["auto", "manual"].includes(type))  return res.status(400).json({ error: "type must be auto or manual" });
+        if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: "messages must be non-empty array" });
+
+        const field = type === "auto" ? "reminderMessages" : "manualReminderMessages";
+        await db.collection("config").doc("settings").set(
+          { [user]: { [field]: messages } },
+          { merge: true }
+        );
+        return res.json({ ok: true, user, type, messages });
+      }
+
+      case "get_wording": {
+        const snap = await db.collection("config").doc("settings").get();
+        const data = snap.data() || {};
+        return res.json({
+          ok: true,
+          mike:  { auto: data.mike?.reminderMessages || [], manual: data.mike?.manualReminderMessages || [] },
+          jenna: { auto: data.jenna?.reminderMessages || [], manual: data.jenna?.manualReminderMessages || [] }
+        });
+      }
+
+      case "raw_logs": {
+        const limit = parseInt(req.query.limit) || 50;
+        const snap  = await db.collection("logs")
+          .orderBy("timestamp", "desc")
+          .limit(limit)
+          .get();
+        const logs = snap.docs.map(d => ({ id: d.id, ...d.data(), timestamp: d.data().timestamp?.toDate()?.toISOString() }));
+        return res.json({ ok: true, count: logs.length, logs });
+      }
+
+      case "delete_entry": {
+        const { id } = req.body || {};
+        if (!id) return res.status(400).json({ error: "Missing id" });
+        await db.collection("logs").doc(id).delete();
+        return res.json({ ok: true, deleted: id });
+      }
+
+      case "reset_data": {
+        const { confirm } = req.body || {};
+        if (confirm !== "RESET_ALL_DATA") {
+          return res.status(400).json({ error: "Must confirm with RESET_ALL_DATA" });
+        }
+        const snap  = await db.collection("logs").get();
+        const batch = db.batch();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        return res.json({ ok: true, deleted: snap.size });
+      }
+
+      case "stats": {
+        const logsSnap  = await db.collection("logs").get();
+        const usersSnap = await db.collection("users").get();
+
+        const logsByUser = {};
+        logsSnap.docs.forEach(d => {
+          const u = d.data().user;
+          logsByUser[u] = (logsByUser[u] || 0) + 1;
+        });
+
+        const stats = {
+          totalLogs:  logsSnap.size,
+          totalUsers: usersSnap.size,
+          users: usersSnap.docs.map(d => ({
+            id:               d.id,
+            telegramUsername: d.data().telegramUsername || null,
+            chatId:           d.data().chatId ? "✓ linked" : "✗ not linked",
+            logs:             logsByUser[d.id] || 0
+          }))
+        };
+        return res.json({ ok: true, stats });
+      }
+
+      default:
+        return res.status(400).json({ error: "Unknown action" });
     }
-    // Don't advance — let user tap Done
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (field === "done") {
-    if (!session.data.symptoms || session.data.symptoms.length === 0) {
-      session.data.symptoms = ["none"];
-    }
-    session.step = "when";
-
-    await editMsg(chatId, msgId,
-      `Got it! When was this?`, {
-      inline_keyboard: [[
-        { text: "Right now",  callback_data: "log:when:now"       },
-        { text: "Yesterday",  callback_data: "log:when:yesterday" }
-      ]]
-    });
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (field === "when") {
-    if (value === "now") {
-      session.data.backdated = false;
-      session.step = "notes";
-      await editMsg(chatId, msgId,
-        `Any notes? (Reply with text, or tap Skip)`, {
-        inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
-      });
-    } else {
-      // Yesterday — ask for time
-      session.data.backdated = true;
-      session.step = "time";
-      await editMsg(chatId, msgId,
-        `What time yesterday? (HH:MM, 24hr — e.g. 08:30 or 21:00)`, {
-        inline_keyboard: [[{ text: "Skip (use midnight)", callback_data: "log:time:00:00" }]]
-      });
-    }
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (field === "time") {
-    // value is HH:MM or "00:00" from skip
-    const timeParts = value.split(":");
-    const hh = parseInt(timeParts[0]) || 0;
-    const mm = parseInt(timeParts[1]) || 0;
-
-    // Build yesterday's date in user's timezone
-    const tz        = session.data.user === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
-    const nowLocal  = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
-    const yesterday = new Date(nowLocal);
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(hh, mm, 0, 0);
-
-    // Convert back to UTC for Firestore
-    const utcOffset  = new Date().getTime() - new Date(new Date().toLocaleString("en-US", { timeZone: tz })).getTime();
-    const utcDate    = new Date(yesterday.getTime() + utcOffset);
-    session.data.backdatedTimestamp = utcDate;
-
-    session.step = "notes";
-    await editMsg(chatId, msgId,
-      `Logging for yesterday at ${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}.\n\nAny notes? (Reply or tap Skip)`, {
-      inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
-    });
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (field === "notes") {
-    session.data.notes = value === "skip" ? "" : value;
-    await saveLog(chatId, session.data, msgId);
-    await setSession(chatId, session);
-    return;
-  }
-}
-
-
-// ── SAVE LOG ──
-async function saveLog(chatId, data, msgId) {
-  // Use backdated time if set, otherwise now
-  if (data.backdatedTimestamp) {
-    data.timestamp = Timestamp.fromDate(data.backdatedTimestamp);
-    delete data.backdatedTimestamp;
-    delete data.backdated;
-  } else {
-    data.timestamp = Timestamp.now();
-  }
-
-  data.notes       = data.notes    || "";
-  data.symptoms    = data.symptoms || ["none"];
-  data.color       = data.color    || "brown";
-  data.volume      = data.volume   || "normal";
-  data.bristolType = parseInt(data.bristolType) || 4;
-
-  try {
-    await db.collection("logs").add(data);
-
-    const b     = BRISTOL[data.bristolType] || BRISTOL[4];
-    const syms  = data.symptoms.includes("none") ? "No symptoms" : data.symptoms.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ");
-    const vol   = formatVolume(data.volume);
-    const color = data.color.replace(/_/g, " ");
-
-    const msg = `*Logged!* ${b.label}\n\n${vol} · ${color} · ${syms}${data.notes ? `\n\n_"${data.notes}"_` : ""}`;
-
-    if (msgId) {
-      await editMsg(chatId, msgId, msg, null, { parse_mode: "Markdown" });
-    } else {
-      await sendMsg(chatId, msg, null, { parse_mode: "Markdown" });
-    }
-
-    // Cross notify partner
-    await notifyPartner(data.user, data.bristolType, data.volume, data.symptoms);
-
   } catch (err) {
-    console.error(err);
-    await sendMsg(chatId, "Failed to save log. Try again.");
+    console.error("Admin action failed:", err);
+    return res.status(500).json({ error: err.message });
   }
-
-  await deleteSession(chatId);
 }
 
 
-// ── CROSS NOTIFICATION ──
-async function notifyPartner(loggedBy, bristolType, volume, symptoms) {
-  try {
-    const partnerKey  = loggedBy === "mike" ? "jenna" : "mike";
-    const loggerName  = loggedBy === "mike" ? "Mike" : "Jenna";
-    const b           = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
-    const vol         = formatVolume(volume);
-    const hasSymp     = symptoms && !symptoms.includes("none") && symptoms.length > 0;
-    const sympList    = hasSymp ? symptoms.join(", ") : "";
-    const hasBlood    = symptoms?.includes("blood");
-    const hasCramps   = symptoms?.includes("cramps");
-    const hasBloating = symptoms?.includes("bloating");
-    const t           = parseInt(bristolType);
-    const isHard      = t <= 2;
-    const isSoft      = t === 4;
-    const isLoose     = t >= 6;
-
-    let pool;
-
-    if (hasBlood) {
-      pool = [
-        `${loggerName} logged blood today 🩸 Please check in on them — worth paying attention to.`,
-        `Heads up: ${loggerName} reported blood in their log. Make sure they're okay 🩸`
-      ];
-    } else if (isHard && hasCramps) {
-      pool = [
-        `${loggerName} is having a rough one — ${b.label} with cramps 😣 Maybe remind them to drink more water?`,
-        `Ouch. ${loggerName} logged a ${b.label} with cramps. Suggest a warm drink ☕`,
-        `${loggerName}'s gut is struggling. ${b.label} + cramps. They could use some support 💙`
-      ];
-    } else if (isHard) {
-      pool = [
-        `${loggerName} logged a ${b.label} — things seem backed up 🪨 Remind them to hydrate!`,
-        `${b.label} alert from ${loggerName}. Tell them: more water, more fibre 💧`,
-        `${loggerName}'s report: ${b.label}, ${vol}. Classic dehydration situation — nudge them!`
-      ];
-    } else if (isLoose && hasSymp) {
-      pool = [
-        `${loggerName} logged a ${b.label} with ${sympList} 😰 Not a great gut day for them`,
-        `Gut SOS from ${loggerName} — ${b.label} + ${sympList}. Check in? 💙`,
-        `${loggerName} is having a rough gut day. ${b.label}, ${sympList}. Hope they feel better 🌿`
-      ];
-    } else if (isLoose) {
-      pool = [
-        `${loggerName}'s gut is running loose — ${b.label} 💧 Hope they're staying hydrated`,
-        `${loggerName} logged a ${b.label}. Make sure they're drinking enough 💧`,
-        `Watery situation at ${loggerName}'s end. ${b.label}, ${vol}. Check in? 🌊`
-      ];
-    } else if (isSoft && !hasSymp) {
-      pool = [
-        `${loggerName} just dropped a perfect ${b.label} ✨ Gut goals honestly`,
-        `Peak gut performance from ${loggerName} — ${b.label}, ${vol}. Absolutely thriving 🌟`,
-        `${loggerName}'s gut is operating at full capacity. ${b.label} · ${vol} · No symptoms. Elite.`,
-        `Perfect log from ${loggerName}! ${b.label}, smooth, no drama. Living well 💚`,
-        `${loggerName} ate their fibre and it shows. ${b.label}, ${vol}. Proud of them 🥦`
-      ];
-    } else if (isSoft && hasSymp) {
-      pool = [
-        `${loggerName} had a ${b.label} today but with ${sympList}. Good consistency, watch those symptoms`,
-        `Mixed report — ${b.label} which is great, but ${sympList} tagged along 🤔`,
-        `${loggerName}'s consistency is on point (${b.label}) but ${sympList} showed up. Hope it passes!`
-      ];
-    } else if (hasBloating) {
-      pool = [
-        `${loggerName} logged with bloating 🫧 Might want to avoid dairy/gluten for a bit`,
-        `${loggerName}'s gut is feeling gassy. ${b.label} + bloating. Check on them! 🫧`
-      ];
-    } else if (hasSymp) {
-      pool = [
-        `${loggerName} logged a ${b.label} with ${sympList}. Not their best gut day 🤍`,
-        `Gut update: ${b.label}, ${vol}, with ${sympList}. Hope they feel better!`,
-        `${loggerName}'s report: ${b.label} · ${vol} · ${sympList}. Keep an eye 👀`
-      ];
-    } else {
-      pool = [
-        `${loggerName} just logged — ${b.label}, ${vol}. All good 📊`,
-        `${loggerName}'s gut has reported in. ${b.label} · ${vol} · No complaints`,
-        `FYI: ${loggerName} just visited the throne. ${b.label}, ${vol}, nothing notable`,
-        `Daily update: ${loggerName} logged a ${b.label}. The data doesn't lie 📈`,
-        `${loggerName} is keeping up with the logs — ${b.label}, ${vol} today`
-      ];
+// ── ADMIN HTML ──
+function adminHTML(key) {
+  const css = `
+    <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    :root{
+      --bg:#0f0c07;--surface:#1a1208;--surface2:#231908;
+      --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.12);
+      --accent:#c05a30;--accent-soft:rgba(192,90,48,0.12);
+      --good-soft:rgba(61,122,82,0.15);--danger:#8B2010;
+      --text:#e8d8c8;--text-soft:#7a6a58;--text-faint:#3a2a18;--radius:10px;
     }
+    body{font-family:-apple-system,'Helvetica Neue',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+    .layout{display:flex;min-height:100vh;}
+    .sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);position:fixed;top:0;left:0;bottom:0;display:flex;flex-direction:column;overflow-y:auto;}
+    .logo{padding:20px;border-bottom:1px solid var(--border);}
+    .logo-title{font-size:20px;font-weight:700;letter-spacing:-0.5px;}
+    .logo-env{display:inline-block;font-size:10px;font-weight:600;text-transform:uppercase;background:var(--accent-soft);color:var(--accent);padding:2px 8px;border-radius:100px;margin-top:4px;}
+    .nav-group{padding:14px 0 6px;}
+    .nav-label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-faint);padding:0 16px 6px;}
+    .nav-btn{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:13px;color:var(--text-soft);background:none;border:none;width:100%;text-align:left;transition:all 0.15s;font-family:inherit;}
+    .nav-btn:hover{color:var(--text);background:rgba(255,255,255,0.04);}
+    .nav-btn.active{color:var(--accent);background:var(--accent-soft);font-weight:500;}
+    .main{margin-left:220px;padding:32px;max-width:720px;}
+    .page{display:none;}.page.active{display:block;}
+    .page-title{font-size:22px;font-weight:700;margin-bottom:4px;}
+    .page-sub{font-size:13px;color:var(--text-soft);margin-bottom:24px;}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:12px;}
+    .card-label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-soft);margin-bottom:12px;}
+    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
+    .stat-box{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;}
+    .stat-num{font-size:28px;font-weight:700;line-height:1;margin-bottom:4px;}
+    .stat-lbl{font-size:11px;color:var(--text-soft);}
+    .user-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);}
+    .user-row:last-child{border-bottom:none;}
+    .user-name{font-size:14px;font-weight:500;}
+    .user-sub{font-size:12px;color:var(--text-soft);margin-top:1px;}
+    .pill{display:inline-flex;font-size:11px;font-weight:600;padding:3px 10px;border-radius:100px;}
+    .pill-good{background:var(--good-soft);color:#5daa82;}
+    .pill-mute{background:rgba(255,255,255,0.06);color:var(--text-soft);}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s;font-family:inherit;}
+    .btn:active{transform:scale(0.97);}
+    .btn:disabled{opacity:0.45;cursor:not-allowed;transform:none;}
+    .btn-primary{background:var(--accent);color:white;}
+    .btn-primary:hover:not(:disabled){opacity:0.88;}
+    .btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border2);}
+    .btn-ghost:hover:not(:disabled){background:rgba(255,255,255,0.1);}
+    .btn-danger{background:var(--danger);color:white;}
+    .btn-danger:hover:not(:disabled){opacity:0.88;}
+    .btn-sm{padding:6px 12px;font-size:12px;}
+    .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+    label{display:block;font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--text-soft);margin-bottom:5px;}
+    input,textarea,select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 12px;font-family:inherit;font-size:13px;outline:none;transition:border 0.15s;margin-bottom:12px;}
+    input:focus,textarea:focus,select:focus{border-color:var(--accent);}
+    textarea{resize:vertical;}
+    .result{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-size:12px;font-family:monospace;line-height:1.7;white-space:pre-wrap;word-break:break-all;color:#b8a888;margin-top:14px;min-height:48px;}
+    .result.ok{border-color:rgba(61,122,82,0.35);color:#5daa82;}
+    .result.err{border-color:rgba(139,32,16,0.35);color:#e05040;}
+    .log-row{padding:10px 0;border-bottom:1px solid var(--border);}
+    .log-row:last-child{border-bottom:none;}
+    .log-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+    .log-detail{font-size:13px;font-weight:500;}
+    .log-meta{font-size:11px;color:var(--text-soft);margin-top:2px;}
+    .log-id{font-family:monospace;font-size:10px;color:var(--text-faint);margin-top:2px;}
+    .danger-zone{border:1px solid rgba(139,32,16,0.3);border-radius:var(--radius);padding:18px;background:rgba(139,32,16,0.06);}
+    .danger-title{font-size:13px;font-weight:600;color:#e05040;margin-bottom:6px;}
+    .danger-desc{font-size:12px;color:var(--text-soft);margin-bottom:14px;line-height:1.5;}
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:10px 20px;font-size:13px;opacity:0;pointer-events:none;transition:all 0.22s;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,0.5);}
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+    .toast.ok{border-color:rgba(61,122,82,0.5);color:#5daa82;}
+    .toast.err{border-color:rgba(139,32,16,0.5);color:#e05040;}
+    #errBanner{display:none;background:#8B2010;color:white;padding:10px 16px;font-size:12px;font-family:monospace;position:fixed;top:0;left:0;right:0;z-index:9999;white-space:pre-wrap;}
+    </style>`;
 
-    const msg = pool[Math.floor(Math.random() * pool.length)];
-    const partnerSnap = await db.collection("users").doc(partnerKey).get();
-    if (!partnerSnap.exists) return;
-    const partnerChatId = partnerSnap.data()?.chatId;
-    if (!partnerChatId) return;
-    await sendMsg(partnerChatId, msg);
-  } catch (err) {
-    console.error("Cross notification failed:", err);
-  }
-}
+  const nav = `
+    <nav class="sidebar">
+      <div class="logo"><div class="logo-title">mjpt</div><div class="logo-env">Admin</div></div>
+      <div class="nav-group">
+        <div class="nav-label">Overview</div>
+        <button class="nav-btn active" onclick="navTo('stats',this)">Stats</button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Reminders</div>
+        <button class="nav-btn" onclick="navTo('reminders',this)">Send reminder</button>
+        <button class="nav-btn" onclick="navTo('cron',this)">Test cron</button>
+        <button class="nav-btn" onclick="navTo('wording',this)">Wording</button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Data</div>
+        <button class="nav-btn" onclick="navTo('logs',this)">Raw logs</button>
+        <button class="nav-btn" onclick="navTo('danger',this)">Danger zone</button>
+      </div>
+    </nav>`;
 
-function formatVolume(v) {
-  const map = {
-    child_size: "Child Size",
-    small:      "Small",
-    normal:     "Normal",
-    huge:       "Huge",
-    gigantic:   "Gigantic"
-  };
-  return map[v] || "Normal";
-}
+  const pages = `
+    <div class="page active" id="page-stats">
+      <div class="page-title">Stats</div>
+      <div class="page-sub">Overview of logs and users</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num" id="sTotal">--</div><div class="stat-lbl">Total logs</div></div>
+        <div class="stat-box"><div class="stat-num" id="sMike">--</div><div class="stat-lbl">Mike logs</div></div>
+        <div class="stat-box"><div class="stat-num" id="sJenna">--</div><div class="stat-lbl">Jenna logs</div></div>
+      </div>
+      <div class="card"><div class="card-label">Telegram</div><div id="usersList">Loading...</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="loadStats()">Refresh</button>
+    </div>
+    <div class="page" id="page-reminders">
+      <div class="page-title">Send Reminder</div>
+      <div class="page-sub">Manually trigger a Telegram reminder</div>
+      <div class="card">
+        <div class="card-label">Quick trigger</div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="triggerReminder('mike')">Send to Mike</button>
+          <button class="btn btn-primary" onclick="triggerReminder('jenna')">Send to Jenna</button>
+          <button class="btn btn-ghost" onclick="triggerReminder('both')">Both</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">Custom message</div>
+        <label>Message</label>
+        <input id="customMsg" placeholder="Hey! Don't forget to log..." />
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" onclick="triggerCustom('mike')">Mike</button>
+          <button class="btn btn-ghost btn-sm" onclick="triggerCustom('jenna')">Jenna</button>
+        </div>
+      </div>
+      <div class="result" id="reminderResult">Results here.</div>
+    </div>
+    <div class="page" id="page-cron">
+      <div class="page-title">Test Cron</div>
+      <div class="page-sub">Run the cron manually to debug</div>
+      <div class="card">
+        <div class="card-label">Run cron now</div>
+        <button class="btn btn-primary" id="cronBtn" onclick="testCron()">Run cron now</button>
+      </div>
+      <div class="result" id="cronResult">Click run to see output.</div>
+    </div>
+    <div class="page" id="page-wording">
+      <div class="page-title">Reminder Wording</div>
+      <div class="page-sub">One message per line — picked randomly.</div>
+      <div class="card">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+          <div><label>User</label><select id="wordingUser"><option value="mike">Mike</option><option value="jenna">Jenna</option></select></div>
+          <div><label>Type</label><select id="wordingType"><option value="auto">Scheduled</option><option value="manual">Manual</option></select></div>
+        </div>
+        <label>Messages</label>
+        <textarea id="wordingMessages" rows="7" placeholder="One message per line..."></textarea>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-sm" onclick="loadWording()">Load</button>
+          <button class="btn btn-primary btn-sm" onclick="saveWording()">Save</button>
+        </div>
+      </div>
+      <div class="result" id="wordingResult" style="display:none"></div>
+    </div>
+    <div class="page" id="page-logs">
+      <div class="page-title">Raw Logs</div>
+      <div class="page-sub">Last 50 entries</div>
+      <div class="btn-row" style="margin-bottom:16px">
+        <button class="btn btn-ghost" onclick="loadLogs()">Load logs</button>
+      </div>
+      <div id="logsList">Click load.</div>
+    </div>
+    <div class="page" id="page-danger">
+      <div class="page-title">Danger Zone</div>
+      <div class="page-sub">Destructive actions</div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-label">Delete entry</div>
+        <label>Document ID</label>
+        <input id="deleteId" placeholder="Get from Raw Logs" />
+        <button class="btn btn-danger btn-sm" onclick="deleteSingle()">Delete</button>
+        <div class="result" id="deleteResult" style="display:none"></div>
+      </div>
+      <div class="danger-zone">
+        <div class="danger-title">Reset all data</div>
+        <div class="danger-desc">Permanently deletes every log. No undo.</div>
+        <button class="btn btn-danger" onclick="resetAll()">Reset all logs</button>
+        <div class="result" id="resetResult" style="display:none"></div>
+      </div>
+    </div>`;
 
+  // JS is built as a plain string — no template literals, no backticks
+  const js = buildAdminJS(key);
 
-// ── HANDLE CONVERSATION (text replies during session) ──
-async function handleConversation(chatId, user, text, session) {
-  // Time entry for backdated log
-  if (session.step === "time") {
-    const timeRegex = /^([01]?\d|2[0-3]):([0-5]\d)$/;
-    if (!timeRegex.test(text.trim())) {
-      await sendMsg(chatId, "Please use HH:MM format (e.g. 08:30 or 21:00)");
-      return;
-    }
-    await handleLogCallback(chatId, null, user, "time", text.trim());
-    return;
-  }
-
-  if (session.step === "notes") {
-    session.data.notes = text;
-    await saveLog(chatId, session.data, null);
-    return;
-  }
-}
-
-
-// ── /history ──
-async function handleHistory(chatId, user) {
-  try {
-    const snap = await db.collection("logs")
-      .where("user", "==", user.id)
-      .limit(20)
-      .get();
-
-    if (snap.empty) {
-      await sendMsg(chatId, "No logs yet. Use /quick or /log to get started!");
-      return;
-    }
-
-    // Sort by timestamp desc in JS — avoids composite index requirement
-    const docs = snap.docs
-      .map(d => ({ ...d.data() }))
-      .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0))
-      .slice(0, 5);
-
-    const lines = docs.map(l => {
-      const b    = BRISTOL[parseInt(l.bristolType)] || BRISTOL[4];
-      const date = l.timestamp.toDate().toLocaleString("en-AU", { timeZone: "Asia/Makassar", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
-      const syms = l.symptoms?.includes("none") ? "" : ` · ${l.symptoms.join(", ")}`;
-      const vol  = formatVolume(l.volume);
-      return `*${b.label}* · ${vol} · ${l.color?.replace(/_/g," ") || "brown"}${syms} — _${date}_`;
-    });
-
-    await sendMsg(chatId, `*Last 5 logs:*\n\n${lines.join("\n")}`, null, { parse_mode: "Markdown" });
-  } catch (err) {
-    console.error("History error:", err);
-    await sendMsg(chatId, "Failed to load history. Try again.");
-  }
-}
-
-
-// ── /preset ──
-async function handlePreset(chatId, user) {
-  const preset = await getUserPreset(user.id);
-  await sendMsg(chatId,
-    `⚙️ *Your Quick Log Preset*\n\nType ${preset.bristolType} · ${preset.color} · ${preset.symptoms.includes("none") ? "No symptoms" : preset.symptoms.join(", ")}\n\nWhat would you like to change?`, {
-    inline_keyboard: [[
-      { text: "Bristol type", callback_data: "preset:step:bristol" },
-      { text: "Color",        callback_data: "preset:step:color"   }
-    ]]
-  }, { parse_mode: "Markdown" });
-}
-
-
-// ── PRESET CALLBACK ──
-async function handlePresetCallback(chatId, msgId, user, field, value) {
-  if (field === "step" && value === "bristol") {
-    await editMsg(chatId, msgId, "Choose your default Bristol type:", {
-      inline_keyboard: [
-        [
-          { text: "1 🪨", callback_data: "preset:bristol:1" },
-          { text: "2 🌰", callback_data: "preset:bristol:2" },
-          { text: "3 🌭", callback_data: "preset:bristol:3" },
-          { text: "4 💩", callback_data: "preset:bristol:4" }
-        ],
-        [
-          { text: "5 ☁️", callback_data: "preset:bristol:5" },
-          { text: "6 🌊", callback_data: "preset:bristol:6" },
-          { text: "7 💧", callback_data: "preset:bristol:7" }
-        ]
-      ]
-    });
-    return;
-  }
-
-  if (field === "bristol") {
-    await savePreset(user.id, { bristolType: parseInt(value) });
-    await editMsg(chatId, msgId, `Default type set to T${value} ✅`);
-    return;
-  }
-
-  if (field === "step" && value === "color") {
-    await editMsg(chatId, msgId, "Choose your default color:", {
-      inline_keyboard: [
-        [
-          { text: "Brown",      callback_data: "preset:color:brown"      },
-          { text: "Dark brown", callback_data: "preset:color:dark_brown" }
-        ],
-        [
-          { text: "Yellow", callback_data: "preset:color:yellow" },
-          { text: "Green",  callback_data: "preset:color:green"  }
-        ]
-      ]
-    });
-    return;
-  }
-
-  if (field === "color") {
-    await savePreset(user.id, { color: value });
-    await editMsg(chatId, msgId, `Default color set to ${value} ✅`);
-    return;
-  }
-}
-
-
-// ── /check ──
-async function handleCheck(chatId, user) {
-  const tz       = user.id === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
-  const now      = new Date();
-  const startOfDay = new Date(now.toLocaleString("en-US", { timeZone: tz }));
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const snap = await db.collection("logs")
-    .where("user", "==", user.id)
-    .where("timestamp", ">=", Timestamp.fromDate(startOfDay))
-    .get();
-
-  const count = snap.size;
-
-  if (count === 0) {
-    await sendMsg(chatId,
-      `No logs yet today, ${user.name}. Want to log now?`, {
-      inline_keyboard: [[
-        { text: "⚡ Quick Log", callback_data: "log:quick:quick" },
-        { text: "📋 Full Log",  callback_data: "log:full:full"   }
-      ]]
-    });
-  } else {
-    const logs  = snap.docs.map(d => d.data());
-    const types = logs.map(l => `T${l.bristolType}`).join(", ");
-    await sendMsg(chatId,
-      `You've logged *${count}x* today. Nice work! 💩\n\n_Types: ${types}_\n\nWant to add another?`, {
-      inline_keyboard: [[
-        { text: "⚡ Quick Log", callback_data: "log:quick:quick" },
-        { text: "📋 Full Log",  callback_data: "log:full:full"   },
-        { text: "Nope, I'm good", callback_data: "log:skip:skip" }
-      ]]
-    }, { parse_mode: "Markdown" });
-  }
-}
-
-
-// ── /help ──
-async function handleHelp(chatId, user) {
-  const name = user?.name || "there";
-  await sendMsg(chatId,
-    `👋 Hey ${name}!\n\n` +
-    `*Commands:*\n` +
-    `/quick — instant log with your preset\n` +
-    `/log — full guided log entry\n` +
-    `/check — see today's logs + quick log offer\n` +
-    `/history — see your last 5 logs\n` +
-    `/preset — update your quick log defaults\n` +
-    `/help — show this message\n\n` +
-    `_Shortcuts: "q" for quick log, "c" for check_`,
-    null, { parse_mode: "Markdown" }
-  );
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1.0">'
+    + '<title>mjpt admin</title>'
+    + css
+    + '</head><body>'
+    + '<div id="errBanner"></div>'
+    + '<div class="layout">'
+    + nav
+    + '<main class="main">' + pages + '</main>'
+    + '</div>'
+    + '<div class="toast" id="toast"></div>'
+    + '<script>' + js + '</scr' + 'ipt>'
+    + '</body></html>';
 }
 
 
-// ── USER HELPERS ──
-async function getUserByChatId(chatId) {
-  const snap = await db.collection("users")
-    .where("chatId", "==", chatId)
-    .limit(1)
-    .get();
-  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
-}
+// ── BUILD ADMIN JS ──
+// Written as plain string concatenation — no template literals,
+// no escaping issues regardless of content.
+function buildAdminJS(key) {
+  const K = JSON.stringify(key);
+  return [
+    "window.onerror=function(m,s,l){var b=document.getElementById('errBanner');b.style.display='block';b.textContent='JS ERROR: '+m+' (line '+l+')';};",
+    "var KEY=" + K + ";",
+    "var toastTimer;",
 
-async function registerUser(chatId, userId, from) {
-  await db.collection("users").doc(userId).set({
-    chatId,
-    name:             userId === "mike" ? "Mike" : "Jenna",
-    telegramUsername: from.username || null,
-    registeredAt:     Timestamp.now()
-  }, { merge: true });
-}
+    "function navTo(page,btn){",
+    "  var ps=document.querySelectorAll('.page');",
+    "  for(var i=0;i<ps.length;i++)ps[i].classList.remove('active');",
+    "  var bs=document.querySelectorAll('.nav-btn');",
+    "  for(var i=0;i<bs.length;i++)bs[i].classList.remove('active');",
+    "  document.getElementById('page-'+page).classList.add('active');",
+    "  btn.classList.add('active');",
+    "  if(page==='stats')loadStats();",
+    "  if(page==='wording')loadWording();",
+    "}",
 
-async function getUserPreset(userId) {
-  const snap = await db.collection("config").doc("settings").get();
-  const data = snap.data();
-  return data?.[userId]?.preset || { bristolType: 4, color: "brown", volume: "normal", symptoms: ["none"] };
-}
+    "function showToast(msg,type){",
+    "  var el=document.getElementById('toast');",
+    "  el.textContent=msg;el.className='toast show '+(type||'ok');",
+    "  clearTimeout(toastTimer);",
+    "  toastTimer=setTimeout(function(){el.className='toast';},2800);",
+    "}",
 
-async function savePreset(userId, updates) {
-  const current = await getUserPreset(userId);
-  const updated  = { ...current, ...updates };
-  await db.collection("config").doc("settings").set(
-    { [userId]: { preset: updated } },
-    { merge: true }
-  );
-}
+    "function callApi(action,body){",
+    "  return fetch('/api/admin?key='+KEY+'&action='+action,{",
+    "    method:'POST',headers:{'Content-Type':'application/json'},",
+    "    body:JSON.stringify(body||{})",
+    "  }).then(function(r){return r.json();});",
+    "}",
 
+    "function showResult(id,data,msg){",
+    "  var el=document.getElementById(id);if(!el)return;",
+    "  el.style.display='block';",
+    "  el.textContent=typeof data==='string'?data:JSON.stringify(data,null,2);",
+    "  var ok=data&&data.ok!==false;",
+    "  el.className='result '+(ok?'ok':'err');",
+    "  showToast(msg||(ok?'Done':'Failed'),ok?'ok':'err');",
+    "}",
 
-// ── TELEGRAM API HELPERS ──
-async function sendMsg(chatId, text, inlineKeyboard = null, extra = {}) {
-  const body = {
-    chat_id: chatId,
-    text,
-    ...extra
-  };
+    "function loadStats(){",
+    "  callApi('stats').then(function(data){",
+    "    if(!data||!data.ok){showToast('Failed to load stats','err');return;}",
+    "    var s=data.stats;",
+    "    document.getElementById('sTotal').textContent=s.totalLogs;",
+    "    var users=s.users||[];",
+    "    var mk=users.filter(function(u){return u.id==='mike';})[0];",
+    "    var jn=users.filter(function(u){return u.id==='jenna';})[0];",
+    "    document.getElementById('sMike').textContent=mk?mk.logs:'--';",
+    "    document.getElementById('sJenna').textContent=jn?jn.logs:'--';",
+    "    var html='';",
+    "    users.forEach(function(u){",
+    "      var linked=u.chatId==='\\u2713 linked';",
+    "      html+='<div class=\"user-row\"><div><div class=\"user-name\">'+(u.id==='mike'?'Mike':'Jenna')+'</div>'",
+    "        +'<div class=\"user-sub\">'+(u.telegramUsername?'@'+u.telegramUsername:'No username')+'&middot;'+u.logs+' logs</div></div>'",
+    "        +'<span class=\"pill '+(linked?'pill-good':'pill-mute')+'\">'+(linked?'Linked':'Not linked')+'</span></div>';",
+    "    });",
+    "    document.getElementById('usersList').innerHTML=html;",
+    "    showToast('Stats loaded');",
+    "  }).catch(function(e){showToast('Error: '+e.message,'err');});",
+    "}",
 
-  if (inlineKeyboard) {
-    // Accept both array format [[...]] and object format { inline_keyboard: [[...]] }
-    const kb = Array.isArray(inlineKeyboard) ? inlineKeyboard : inlineKeyboard.inline_keyboard;
-    body.reply_markup = { inline_keyboard: kb };
-  }
+    "function triggerReminder(user){",
+    "  var users=user==='both'?['mike','jenna']:[user];",
+    "  var sent=[];var pending=users.length;",
+    "  users.forEach(function(u){",
+    "    callApi('trigger_reminder',{user:u}).then(function(d){",
+    "      if(d&&d.ok)sent.push(u.charAt(0).toUpperCase()+u.slice(1));",
+    "      pending--;",
+    "      if(pending===0)showResult('reminderResult',{ok:sent.length>0},sent.length?'Sent to '+sent.join(' & '):'Failed');",
+    "    });",
+    "  });",
+    "}",
 
-  const res = await fetch(`${API}/sendMessage`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body)
-  });
+    "function triggerCustom(user){",
+    "  var msg=document.getElementById('customMsg').value.trim();",
+    "  callApi('trigger_reminder',{user:user,message:msg||undefined}).then(function(d){",
+    "    showResult('reminderResult',d,d&&d.ok?'Sent to '+user:'Failed');",
+    "  });",
+    "}",
 
-  return res.json();
-}
+    "function testCron(){",
+    "  var btn=document.getElementById('cronBtn');",
+    "  btn.disabled=true;btn.textContent='Running...';",
+    "  fetch('/api/cron?key='+KEY).then(function(r){return r.json();}).then(function(data){",
+    "    var el=document.getElementById('cronResult');",
+    "    if(data&&data.results){",
+    "      el.className='result ok';",
+    "      var out='';",
+    "      data.results.forEach(function(r){",
+    "        out+=r.user.toUpperCase()+'\\n';",
+    "        if(r.error){out+='  error: '+r.error+'\\n';}",
+    "        else if(r.actions){r.actions.forEach(function(a){",
+    "          out+='  ['+a.type+'] sent:'+a.sent+(a.reason?' -- '+a.reason:'')+'\\n';",
+    "          if(a.msg)out+='    msg: '+a.msg+'\\n';",
+    "        });}",
+    "        out+='\\n';",
+    "      });",
+    "      el.textContent=out;",
+    "      showToast('Cron ran');",
+    "    }else{el.className='result err';el.textContent=JSON.stringify(data,null,2);showToast('Unexpected','err');}",
+    "  }).catch(function(e){showResult('cronResult',{ok:false},'Failed: '+e.message);})",
+    "  .finally(function(){btn.disabled=false;btn.textContent='Run cron now';});",
+    "}",
 
-async function editMsg(chatId, msgId, text, inlineKeyboard = null, extra = {}) {
-  const body = {
-    chat_id:    chatId,
-    message_id: msgId,
-    text,
-    ...extra
-  };
+    "function loadWording(){",
+    "  var user=document.getElementById('wordingUser').value;",
+    "  var type=document.getElementById('wordingType').value;",
+    "  callApi('get_wording').then(function(data){",
+    "    if(!data||!data.ok){showToast('Failed','err');return;}",
+    "    var msgs=type==='auto'?(data[user]&&data[user].auto):(data[user]&&data[user].manual);",
+    "    document.getElementById('wordingMessages').value=(msgs||[]).join('\\n');",
+    "    showToast((msgs&&msgs.length||0)+' messages loaded');",
+    "  });",
+    "}",
 
-  if (inlineKeyboard) {
-    // Accept both array format [[...]] and object format { inline_keyboard: [[...]] }
-    const kb = Array.isArray(inlineKeyboard) ? inlineKeyboard : inlineKeyboard.inline_keyboard;
-    body.reply_markup = { inline_keyboard: kb };
-  }
+    "function saveWording(){",
+    "  var user=document.getElementById('wordingUser').value;",
+    "  var type=document.getElementById('wordingType').value;",
+    "  var msgs=document.getElementById('wordingMessages').value.split('\\n').map(function(m){return m.trim();}).filter(Boolean);",
+    "  if(!msgs.length){showToast('Enter at least one message','err');return;}",
+    "  callApi('update_wording',{user:user,type:type,messages:msgs}).then(function(data){",
+    "    showResult('wordingResult',data,data&&data.ok?'Saved '+msgs.length+' messages':'Failed');",
+    "  });",
+    "}",
 
-  const res = await fetch(`${API}/editMessageText`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body)
-  });
+    "function loadLogs(){",
+    "  callApi('raw_logs').then(function(data){",
+    "    if(!data||!data.ok){showToast('Failed','err');return;}",
+    "    var c=document.getElementById('logsList');",
+    "    if(!data.logs||!data.logs.length){c.innerHTML='No logs.';return;}",
+    "    var html='';",
+    "    data.logs.forEach(function(l){",
+    "      var syms=l.symptoms&&!l.symptoms.includes('none')?' &middot; '+l.symptoms.join(', '):'';",
+    "      html+='<div class=\"log-row\"><div class=\"log-main\"><div>'",
+    "        +'<div class=\"log-detail\">'+(l.user==='mike'?'Mike':'Jenna')+'&middot;T'+l.bristolType+'&middot;'+(l.volume||'normal')+'&middot;'+(l.color||'brown')+syms+'</div>'",
+    "        +'<div class=\"log-meta\">'+(l.timestamp||'--')+(l.notes?' &middot;'+l.notes:'')+'</div>'",
+    "        +'<div class=\"log-id\">'+l.id+'</div>'",
+    "        +'</div><button class=\"btn btn-danger btn-sm\" onclick=\"doDelete(this.dataset.id)\" data-id=\"'+l.id+'\">Del</button>'",
+    "        +'</div></div>';",
+    "    });",
+    "    c.innerHTML=html;",
+    "    showToast(data.count+' logs loaded');",
+    "  });",
+    "}",
 
-  return res.json();
+    "function doDelete(id){",
+    "  if(!confirm('Delete '+id+'?'))return;",
+    "  callApi('delete_entry',{id:id}).then(function(d){",
+    "    if(d&&d.ok){showToast('Deleted');loadLogs();}",
+    "    else showToast('Failed','err');",
+    "  });",
+    "}",
+
+    "function deleteSingle(){",
+    "  var id=document.getElementById('deleteId').value.trim();",
+    "  if(!id){showToast('Enter an ID','err');return;}",
+    "  if(!confirm('Delete '+id+'?'))return;",
+    "  callApi('delete_entry',{id:id}).then(function(d){",
+    "    showResult('deleteResult',d,d&&d.ok?'Deleted':'Failed');",
+    "  });",
+    "}",
+
+    "function resetAll(){",
+    "  var c=prompt('Type RESET_ALL_DATA to confirm:');",
+    "  if(!c)return;",
+    "  callApi('reset_data',{confirm:c}).then(function(d){",
+    "    showResult('resetResult',d,d&&d.ok?d.deleted+' logs deleted':'Failed or wrong confirmation');",
+    "  });",
+    "}",
+
+    "loadStats();"
+  ].join('\n');
 }
