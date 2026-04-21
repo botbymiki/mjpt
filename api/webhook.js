@@ -33,9 +33,50 @@ const BRISTOL = {
 const COLORS = ["brown", "dark_brown", "yellow", "green", "red", "black", "pale"];
 const SYMPTOMS = ["none", "bloating", "urgency", "cramps", "blood"];
 
-// ── CONVERSATION STATE (in-memory, resets on cold start) ──
-// For production, store in Firestore if needed
-const sessions = {};
+// ── CONVERSATION STATE (Firestore-backed — survives serverless cold starts) ──
+const sessions = {}; // local cache within same invocation only
+
+async function getSession(chatId) {
+  // Check local cache first
+  if (sessions[chatId]) return sessions[chatId];
+  // Fall back to Firestore
+  try {
+    const snap = await db.collection("sessions").doc(String(chatId)).get();
+    if (snap.exists) {
+      const data = snap.data();
+      // Expire sessions older than 30 minutes
+      const age = Date.now() - (data.updatedAt || 0);
+      if (age < 30 * 60 * 1000) {
+        sessions[chatId] = data;
+        return data;
+      }
+      // Expired — delete it
+      await db.collection("sessions").doc(String(chatId)).delete();
+    }
+  } catch (err) {
+    console.error("getSession error:", err);
+  }
+  return null;
+}
+
+async function setSession(chatId, session) {
+  session.updatedAt = Date.now();
+  sessions[chatId] = session;
+  try {
+    await db.collection("sessions").doc(String(chatId)).set(session);
+  } catch (err) {
+    console.error("setSession error:", err);
+  }
+}
+
+async function deleteSession(chatId) {
+  delete sessions[chatId];
+  try {
+    await db.collection("sessions").doc(String(chatId)).delete();
+  } catch (err) {
+    console.error("deleteSession error:", err);
+  }
+}
 
 
 // ── MAIN HANDLER ──
@@ -128,7 +169,7 @@ async function handleMessage(msg) {
   }
 
   // Handle conversation state
-  const session = sessions[chatId];
+  const session = await getSession(chatId);
   if (session) {
     await handleConversation(chatId, user, text, session);
     return;
@@ -186,7 +227,8 @@ async function handleQuickLog(chatId, user) {
 
 // ── /log — start guided flow ──
 async function handleLogStart(chatId, user) {
-  sessions[chatId] = { step: "bristol", data: { user: user.id, source: "telegram", quick: false } };
+  const session = { step: "bristol", data: { user: user.id, source: "telegram", quick: false } };
+  await setSession(chatId, session);
 
   await sendMsg(chatId, `Full Log Entry\n\nWhat's the Bristol type?`, {
     inline_keyboard: [
@@ -270,8 +312,11 @@ async function handleCallback(cb) {
 
 // ── LOG CALLBACK FLOW ──
 async function handleLogCallback(chatId, msgId, user, field, value) {
-  const session = sessions[chatId] || { step: field, data: { user: user?.id, source: "telegram", quick: false } };
-  sessions[chatId] = session;
+  let session = await getSession(chatId);
+  if (!session) {
+    session = { step: field, data: { user: user?.id, source: "telegram", quick: false } };
+  }
+  await setSession(chatId, session);
 
   if (field === "bristol") {
     session.data.bristolType = parseInt(value);
@@ -292,6 +337,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
         ]
       ]
     });
+    await setSession(chatId, session);
     return;
   }
 
@@ -314,6 +360,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
         ]
       ]
     });
+    await setSession(chatId, session);
     return;
   }
 
@@ -339,6 +386,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
     });
 
     session.data.symptoms = [];
+    await setSession(chatId, session);
     return;
   }
 
@@ -353,6 +401,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
       session.data.symptoms = session.data.symptoms.filter(s => s !== "none");
     }
     // Don't advance — let user tap Done
+    await setSession(chatId, session);
     return;
   }
 
@@ -369,6 +418,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
         { text: "Yesterday",  callback_data: "log:when:yesterday" }
       ]]
     });
+    await setSession(chatId, session);
     return;
   }
 
@@ -389,6 +439,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
         inline_keyboard: [[{ text: "Skip (use midnight)", callback_data: "log:time:00:00" }]]
       });
     }
+    await setSession(chatId, session);
     return;
   }
 
@@ -415,12 +466,14 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
       `Logging for yesterday at ${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}.\n\nAny notes? (Reply or tap Skip)`, {
       inline_keyboard: [[{ text: "Skip", callback_data: "log:notes:skip" }]]
     });
+    await setSession(chatId, session);
     return;
   }
 
   if (field === "notes") {
     session.data.notes = value === "skip" ? "" : value;
     await saveLog(chatId, session.data, msgId);
+    await setSession(chatId, session);
     return;
   }
 }
@@ -467,7 +520,7 @@ async function saveLog(chatId, data, msgId) {
     await sendMsg(chatId, "Failed to save log. Try again.");
   }
 
-  delete sessions[chatId];
+  await deleteSession(chatId);
 }
 
 
@@ -586,7 +639,6 @@ async function handleConversation(chatId, user, text, session) {
       await sendMsg(chatId, "Please use HH:MM format (e.g. 08:30 or 21:00)");
       return;
     }
-    // Re-use the callback handler logic
     await handleLogCallback(chatId, null, user, "time", text.trim());
     return;
   }
