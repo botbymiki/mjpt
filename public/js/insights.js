@@ -509,13 +509,13 @@ function renderCombined() {
 
 // ── DUEL RINGS ──
 function renderDuel(mikeLogs, jennaLogs) {
-  const container = $("#duelWrap");
+  const container = $("#duelCard");
   container.innerHTML = "";
 
   const mikeScore  = calcGutScore(mikeLogs);
   const jennaScore = calcGutScore(jennaLogs);
   const { start, end } = getPeriodRange(currentPeriod);
-  const days  = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
+  const days = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
 
   const mikeAvg  = mikeLogs.length  > 0 ? (mikeLogs.length  / days).toFixed(1) : "—";
   const jennaAvg = jennaLogs.length > 0 ? (jennaLogs.length / days).toFixed(1) : "—";
@@ -523,59 +523,39 @@ function renderDuel(mikeLogs, jennaLogs) {
   const mikeBristol  = getTopBristol(mikeLogs);
   const jennaBristol = getTopBristol(jennaLogs);
 
-  const mikeWins  = (mikeScore  || 0) >= (jennaScore || 0);
-  const jennaWins = (jennaScore || 0) >  (mikeScore  || 0);
+  const mikeWins  = (mikeScore  ?? -1) > (jennaScore ?? -1);
+  const jennaWins = (jennaScore ?? -1) > (mikeScore  ?? -1);
 
-  const makeRing = (score, ringClass) => {
-    if (score === null) return `
-      <svg width="88" height="88" viewBox="0 0 100 100">
-        <circle class="ring-bg" cx="50" cy="50" r="40"/>
-        <circle cx="50" cy="50" r="40" fill="none"
-          stroke="rgba(255,255,255,0.06)" stroke-width="8"
-          stroke-dasharray="251" stroke-dashoffset="251"/>
-      </svg>`;
-    const offset = scoreRingOffset(score);
+  const makeRingSVG = (score) => {
+    const info   = scoreLabel(score);
+    const offset = score !== null ? scoreRingOffset(score) : 251;
+    const cls    = score !== null ? (info?.class || "neutral") : "";
     return `
-      <svg width="88" height="88" viewBox="0 0 100 100">
+      <svg width="90" height="90" viewBox="0 0 100 100">
         <circle class="ring-bg" cx="50" cy="50" r="40"/>
-        <circle class="ring-fill ${ringClass}" cx="50" cy="50" r="40"
+        <circle class="ring-fill ${cls}" cx="50" cy="50" r="40"
           stroke-dasharray="251" stroke-dashoffset="${offset}"/>
       </svg>`;
   };
 
-  const makeCard = (user, logs, score, avg, topBristol, isWinner) => {
-    const info       = scoreLabel(score);
-    const label      = info?.label || "No data";
-    const ringColor  = info?.class || "neutral";
-    const userName   = user === "mike" ? "Mike" : "Jenna";
-    const bristol    = topBristol ? (BRISTOL[topBristol]?.label || "—") : "—";
+  const makeSide = (user, logs, score, avg, topBristol, isWinner) => {
+    const info      = scoreLabel(score);
+    const label     = info?.label || "No data";
+    const bristol   = topBristol ? (BRISTOL[topBristol]?.label || "—") : "—";
+    const userName  = user === "mike" ? "Mike" : "Jenna";
 
     return `
-      <div class="duel-card ${isWinner ? "winner" : ""}">
-        ${isWinner ? `<div class="duel-crown">👑</div>` : ""}
+      <div class="duel-side">
         <div class="duel-name">${userName}</div>
-
-        <!-- Ring -->
-        <div style="position:relative;z-index:1">
-          ${makeRing(score, ringColor)}
-          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+        <div class="duel-ring-wrap">
+          ${makeRingSVG(score)}
+          ${isWinner ? `<div class="duel-crown">👑</div>` : ""}
+          <div class="duel-ring-center">
             <div style="font-family:var(--font-display);font-size:22px;color:white;line-height:1;letter-spacing:-1px">${score ?? "—"}</div>
             <div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px">/100</div>
           </div>
         </div>
-
-        <!-- Score label badge -->
-        <div style="
-          background:rgba(255,255,255,0.07);
-          border:1px solid rgba(255,255,255,0.1);
-          border-radius:100px;
-          padding:3px 10px;
-          position:relative;z-index:1
-        ">
-          <div class="duel-score-label">${label}</div>
-        </div>
-
-        <!-- Meta -->
+        <div class="duel-score-label">${label}</div>
         <div class="duel-meta">
           ${logs.length} log${logs.length !== 1 ? "s" : ""} · ${avg}/day<br>
           Top: ${bristol}
@@ -583,8 +563,10 @@ function renderDuel(mikeLogs, jennaLogs) {
       </div>`;
   };
 
-  container.innerHTML = makeCard("mike",  mikeLogs,  mikeScore,  mikeAvg,  mikeBristol,  mikeWins)
-                      + makeCard("jenna", jennaLogs, jennaScore, jennaAvg, jennaBristol, jennaWins);
+  container.innerHTML =
+    makeSide("mike",  mikeLogs,  mikeScore,  mikeAvg,  mikeBristol,  mikeWins)
+    + `<div class="duel-divider"><div class="duel-vs">VS</div></div>`
+    + makeSide("jenna", jennaLogs, jennaScore, jennaAvg, jennaBristol, jennaWins);
 }
 
 function getTopBristol(logs) {
