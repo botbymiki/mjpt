@@ -526,35 +526,59 @@ function renderDuel(mikeLogs, jennaLogs) {
   const mikeWins  = (mikeScore  || 0) >= (jennaScore || 0);
   const jennaWins = (jennaScore || 0) >  (mikeScore  || 0);
 
-  const makeRing = (score, color) => {
-    if (score === null) return `<svg width="80" height="80" viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="40"/><circle class="ring-fill" cx="50" cy="50" r="40" stroke-dasharray="251" stroke-dashoffset="251" style="stroke:var(--color-border)"/></svg>`;
-    const offset = scoreRingOffset(score);
-    const info   = scoreLabel(score);
-    return `
-      <svg width="80" height="80" viewBox="0 0 100 100">
+  const makeRing = (score, ringClass) => {
+    if (score === null) return `
+      <svg width="88" height="88" viewBox="0 0 100 100">
         <circle class="ring-bg" cx="50" cy="50" r="40"/>
-        <circle class="ring-fill ${info.class}" cx="50" cy="50" r="40"
+        <circle cx="50" cy="50" r="40" fill="none"
+          stroke="rgba(255,255,255,0.06)" stroke-width="8"
+          stroke-dasharray="251" stroke-dashoffset="251"/>
+      </svg>`;
+    const offset = scoreRingOffset(score);
+    return `
+      <svg width="88" height="88" viewBox="0 0 100 100">
+        <circle class="ring-bg" cx="50" cy="50" r="40"/>
+        <circle class="ring-fill ${ringClass}" cx="50" cy="50" r="40"
           stroke-dasharray="251" stroke-dashoffset="${offset}"/>
       </svg>`;
   };
 
   const makeCard = (user, logs, score, avg, topBristol, isWinner) => {
-    const label = scoreLabel(score)?.label || "No data";
+    const info       = scoreLabel(score);
+    const label      = info?.label || "No data";
+    const ringColor  = info?.class || "neutral";
+    const userName   = user === "mike" ? "Mike" : "Jenna";
+    const bristol    = topBristol ? (BRISTOL[topBristol]?.label || "—") : "—";
+
     return `
       <div class="duel-card ${isWinner ? "winner" : ""}">
         ${isWinner ? `<div class="duel-crown">👑</div>` : ""}
-        <div class="duel-name">${user === "mike" ? "Mike" : "Jenna"}</div>
-        <div style="position:relative">
-          ${makeRing(score, user)}
+        <div class="duel-name">${userName}</div>
+
+        <!-- Ring -->
+        <div style="position:relative;z-index:1">
+          ${makeRing(score, ringColor)}
           <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
-            <div style="font-family:var(--font-display);font-size:20px;color:white;line-height:1">${score ?? "—"}</div>
-            <div style="font-size:9px;color:rgba(255,255,255,0.4)">/100</div>
+            <div style="font-family:var(--font-display);font-size:22px;color:white;line-height:1;letter-spacing:-1px">${score ?? "—"}</div>
+            <div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:1px">/100</div>
           </div>
         </div>
-        <div class="duel-score-label">${label}</div>
+
+        <!-- Score label badge -->
+        <div style="
+          background:rgba(255,255,255,0.07);
+          border:1px solid rgba(255,255,255,0.1);
+          border-radius:100px;
+          padding:3px 10px;
+          position:relative;z-index:1
+        ">
+          <div class="duel-score-label">${label}</div>
+        </div>
+
+        <!-- Meta -->
         <div class="duel-meta">
-          ${logs.length} logs · ${avg}/day<br>
-          ${topBristol ? BRISTOL[topBristol]?.label || "—" : "No logs"}
+          ${logs.length} log${logs.length !== 1 ? "s" : ""} · ${avg}/day<br>
+          Top: ${bristol}
         </div>
       </div>`;
   };
