@@ -426,3 +426,101 @@ export function calcDailyFreq(logs, days = 7) {
 
   return result;
 }
+
+
+// ── SYNC RATE ──
+// Returns % of days where both users logged within 2hrs of each other
+export function calcSyncRate(mikeLogs, jennaLogs, tz = "Asia/Makassar") {
+  if (!mikeLogs.length || !jennaLogs.length) return 0;
+
+  // Group each user's logs by local date
+  const groupByDate = (logs) => {
+    const map = {};
+    logs.forEach(l => {
+      const d = l.timestamp?.toDate();
+      if (!d) return;
+      const key = d.toLocaleDateString("en-CA", { timeZone: tz });
+      if (!map[key]) map[key] = [];
+      map[key].push(d);
+    });
+    return map;
+  };
+
+  const mikeByDay  = groupByDate(mikeLogs);
+  const jennaByDay = groupByDate(jennaLogs);
+
+  const allDays = new Set([...Object.keys(mikeByDay), ...Object.keys(jennaByDay)]);
+  let syncDays  = 0;
+
+  allDays.forEach(day => {
+    const md = mikeByDay[day]  || [];
+    const jd = jennaByDay[day] || [];
+    if (!md.length || !jd.length) return;
+
+    // Check if any Mike log is within 2hrs of any Jenna log
+    const synced = md.some(m =>
+      jd.some(j => Math.abs(m - j) <= 2 * 60 * 60 * 1000)
+    );
+    if (synced) syncDays++;
+  });
+
+  const sharedDays = [...allDays].filter(d => mikeByDay[d] && jennaByDay[d]).length;
+  if (sharedDays === 0) return 0;
+  return Math.round((syncDays / sharedDays) * 100);
+}
+
+
+// ── STORY GENERATOR ──
+export function generateStory(mikeStats, jennaStats, syncRate) {
+  const sentences = [];
+
+  const name = (s) => s.user === "mike" ? "Mike" : "Jenna";
+  const describe = (s) => {
+    if (s.consistencyPct >= 70) return "a strong week gut-wise";
+    if (s.consistencyPct >= 50) return "a decent week";
+    if (s.hardCount >= 3)       return "a tough week with some hard stools";
+    if (s.looseCount >= 3)      return "a rough week with loose stools";
+    return "a mixed week";
+  };
+
+  // Sentence 1 — Mike's week
+  let mikeSentence = `Mike logged ${mikeStats.total} time${mikeStats.total !== 1 ? "s" : ""} — ${describe(mikeStats)}.`;
+  if (mikeStats.total === 0) mikeSentence = "Mike didn't log this period.";
+  sentences.push(mikeSentence);
+
+  // Sentence 2 — Jenna's week
+  let jennaSentence = `Jenna logged ${jennaStats.total} time${jennaStats.total !== 1 ? "s" : ""} — ${describe(jennaStats)}.`;
+  if (jennaStats.total === 0) jennaSentence = "Jenna didn't log this period.";
+  sentences.push(jennaSentence);
+
+  // Sentence 3 — specific observation
+  if (mikeStats.hardCount >= 2) {
+    sentences.push(`Mike had ${mikeStats.hardCount} hard stools — more water and fibre could help.`);
+  } else if (jennaStats.hardCount >= 2) {
+    sentences.push(`Jenna had ${jennaStats.hardCount} hard stools — remind her to stay hydrated.`);
+  } else if (mikeStats.looseCount >= 2) {
+    sentences.push(`Mike had ${mikeStats.looseCount} loose stools — worth keeping an eye on diet and stress.`);
+  } else if (jennaStats.looseCount >= 2) {
+    sentences.push(`Jenna had ${jennaStats.looseCount} loose stools — check for food triggers.`);
+  }
+
+  // Sentence 4 — sync observation
+  if (syncRate >= 60) {
+    sentences.push(`You two were in sync ${syncRate}% of shared days — gut twins! 👯`);
+  } else if (syncRate >= 30) {
+    sentences.push(`Your schedules overlapped ${syncRate}% of the time.`);
+  } else if (syncRate > 0) {
+    sentences.push(`You were on very different schedules this period (${syncRate}% sync).`);
+  }
+
+  // Sentence 5 — closing
+  const bothGood = mikeStats.consistencyPct >= 60 && jennaStats.consistencyPct >= 60;
+  const bothBad  = mikeStats.consistencyPct < 40  && jennaStats.consistencyPct < 40;
+  if (bothGood) {
+    sentences.push("Both doing well — keep it up! 💚");
+  } else if (bothBad) {
+    sentences.push("Both could use more water, fibre, and movement this week. 💧");
+  }
+
+  return sentences.join(" ");
+}

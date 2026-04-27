@@ -61,9 +61,17 @@ module.exports = async (req, res) => {
 
   console.log(`[cron] Authorized via ${validAdmin ? "admin key" : "cron secret"}`);
 
+  // ?force=reminder  — send reminder regardless of time/day/logged status
+  // ?force=recap     — send weekly recap regardless of day/hour
+  // ?force=alert     — send health alert regardless of hour
+  // ?user=mike|jenna — limit to one user (optional)
+  const force    = req.query.force || null;
+  const userFilter = req.query.user || null;
+
   const results = [];
   for (const [userId, config] of Object.entries(USERS_CONFIG)) {
-    const result = await processUser(userId, config);
+    if (userFilter && userId !== userFilter) continue;
+    const result = await processUser(userId, config, force);
     results.push(result);
     console.log(`[cron] ${userId}: ${JSON.stringify(result)}`);
   }
@@ -73,60 +81,71 @@ module.exports = async (req, res) => {
 
 
 // ── PROCESS USER ──
-async function processUser(userId, config) {
+async function processUser(userId, config, force) {
   try {
     const now       = new Date();
     const localHour = getLocalHour(now, config.tz);
-    const localDay  = getLocalDayOfWeek(now, config.tz); // 1=Mon ... 7=Sun
+    const localDay  = getLocalDayOfWeek(now, config.tz);
 
-    console.log(`[${userId}] Local hour: ${localHour}, day: ${localDay}`);
+    console.log(`[${userId}] Local hour: ${localHour}, day: ${localDay}, force: ${force || "none"}`);
 
-    // Get settings
     const settingsSnap = await db.collection("config").doc("settings").get();
     const settings     = settingsSnap.data()?.[userId] || {};
     const reminder     = settings.reminder || { time: "20:00", frequency: "daily", days: [] };
     const [remHour]    = (reminder.time || "20:00").split(":").map(Number);
 
+    const userSnap = await db.collection("users").doc(userId).get();
+    if (!userSnap.exists) return { user: userId, error: "User not registered" };
+    const chatId = userSnap.data()?.chatId;
+    if (!chatId)   return { user: userId, error: "No chat ID" };
+
     const actions = [];
 
-    // ── 1. WEEKLY RECAP (Sunday = day 7, 8am) ──
-    if (localDay === 7 && localHour === 8) {
+    // ── 1. WEEKLY RECAP ──
+    const doRecap = force === "recap" || force === "all" || (localDay === 7 && localHour === 8);
+    if (doRecap) {
       const sent = await sendWeeklyRecap(userId, config);
-      actions.push({ type: "recap", sent });
+      actions.push({ type: "recap", sent, forced: !!force });
     }
 
-    // ── 2. HEALTH ALERTS (check every hour, avoid duplicates) ──
-    const alertSent = await checkHealthAlerts(userId, config, now);
-    if (alertSent) actions.push({ type: "health_alert", sent: true });
+    // ── 2. HEALTH ALERTS ──
+    const doAlert = force === "alert" || force === "all";
+    if (doAlert) {
+      // Force-send alert directly
+      const msg = `[Test] Health alert for ${config.name}. In production this fires based on your log patterns.`;
+      await sendMsg(chatId, msg);
+      actions.push({ type: "health_alert", sent: true, forced: true });
+    } else {
+      const alertSent = await checkHealthAlerts(userId, config, now);
+      if (alertSent) actions.push({ type: "health_alert", sent: true });
+    }
 
-    // ── 3. DAILY REMINDER (at configured hour) ──
-    console.log(`[${userId}] Local time: ${localHour}:xx, reminder at: ${remHour}:00`);
-
-    if (localHour === remHour) {
-      // Check frequency
-      if (reminder.frequency === "weekly" && localDay !== 1) {
-        actions.push({ type: "reminder", sent: false, reason: "Not weekly day" });
-      } else if (reminder.frequency === "custom" && reminder.days?.length > 0 && !reminder.days.includes(localDay)) {
-        actions.push({ type: "reminder", sent: false, reason: `Not a scheduled day (${localDay})` });
-      } else {
+    // ── 3. DAILY REMINDER ──
+    const doReminder = force === "reminder" || force === "all";
+    if (doReminder || localHour === remHour) {
+      if (!doReminder) {
+        // Normal schedule checks
+        if (reminder.frequency === "weekly" && localDay !== 1) {
+          actions.push({ type: "reminder", sent: false, reason: "Not weekly day" });
+          return { user: userId, actions };
+        }
+        if (reminder.frequency === "custom" && reminder.days?.length > 0 && !reminder.days.includes(localDay)) {
+          actions.push({ type: "reminder", sent: false, reason: `Not a scheduled day (${localDay})` });
+          return { user: userId, actions };
+        }
         const hasLogged = await hasLoggedToday(userId, config.tz);
         if (hasLogged) {
           actions.push({ type: "reminder", sent: false, reason: "Already logged today" });
-        } else {
-          const userSnap = await db.collection("users").doc(userId).get();
-          if (!userSnap.exists) return { user: userId, sent: false, reason: "User not registered" };
-          const chatId = userSnap.data()?.chatId;
-          if (!chatId)   return { user: userId, sent: false, reason: "No chat ID" };
-
-          const customMsgs = settings.reminderMessages;
-          const pool       = (customMsgs?.length > 0) ? customMsgs : DEFAULT_REMINDERS[userId];
-          const msg        = pool[Math.floor(Math.random() * pool.length)];
-
-          await sendReminderMsg(chatId, msg);
-          await db.collection("reminder_logs").add({ user: userId, sentAt: Timestamp.now(), type: "daily" });
-          actions.push({ type: "reminder", sent: true, msg });
+          return { user: userId, actions };
         }
       }
+
+      const customMsgs = settings.reminderMessages;
+      const pool       = (customMsgs?.length > 0) ? customMsgs : DEFAULT_REMINDERS[userId];
+      const msg        = pool[Math.floor(Math.random() * pool.length)];
+      await sendReminderMsg(chatId, msg);
+      await db.collection("reminder_logs").add({ user: userId, sentAt: Timestamp.now(), type: "daily" });
+      actions.push({ type: "reminder", sent: true, msg, forced: !!force });
     } else {
       actions.push({ type: "reminder", sent: false, reason: `Not reminder time (${localHour} vs ${remHour})` });
     }
@@ -412,12 +431,19 @@ async function hasLoggedToday(userId, tz) {
 
 // ── HELPERS ──
 function getLocalHour(now, tz) {
-  return parseInt(now.toLocaleString("en-US", { timeZone: tz, hour: "2-digit", hour12: false }));
+  // Use en-GB which reliably returns HH:MM in 24hr format
+  const timeStr = now.toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+  const hour = parseInt(timeStr.split(":")[0]);
+  console.log(`[getLocalHour] tz=${tz} timeStr="${timeStr}" hour=${hour}`);
+  return isNaN(hour) ? 0 : hour;
 }
 
 function getLocalDayOfWeek(now, tz) {
   const map = { Monday:1, Tuesday:2, Wednesday:3, Thursday:4, Friday:5, Saturday:6, Sunday:7 };
-  return map[now.toLocaleDateString("en-US", { timeZone: tz, weekday: "long" })] || 1;
+  const dayStr = now.toLocaleDateString("en-US", { timeZone: tz, weekday: "long" });
+  const day = map[dayStr] || 1;
+  console.log(`[getLocalDayOfWeek] tz=${tz} dayStr="${dayStr}" day=${day}`);
+  return day;
 }
 
 async function sendMsg(chatId, text, keyboard, opts = {}) {
