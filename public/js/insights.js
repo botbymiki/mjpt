@@ -140,6 +140,36 @@ function initPeriodPills() {
 }
 
 
+
+
+// ── SMART AVG ──
+// For long periods (month/year/all), use actual log date span
+// rather than the full period length to avoid misleadingly small numbers.
+function calcSmartAvg(logs, periodDays) {
+  if (!logs.length) return "—";
+
+  // If period is short (<=31 days), use period days as-is
+  if (periodDays <= 31) {
+    return (logs.length / periodDays).toFixed(1);
+  }
+
+  // For longer periods, use actual span between first and last log
+  const timestamps = logs
+    .map(l => l.timestamp?.seconds)
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+
+  if (timestamps.length < 2) return logs.length.toFixed(1);
+
+  const spanDays = Math.max(1, Math.round(
+    (timestamps[timestamps.length-1] - timestamps[0]) / (60*60*24)
+  ));
+
+  const avg = logs.length / spanDays;
+  // Show 1 decimal if < 10, else round to integer
+  return avg >= 10 ? String(Math.round(avg)) : avg.toFixed(1);
+}
+
 // ── LOAD ──
 async function loadLogs() {
   try {
@@ -252,7 +282,7 @@ function renderStats(logs) {
   const total = logs.length;
   const { start, end } = getPeriodRange(currentPeriod);
   const days  = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
-  const avg   = total > 0 ? (total / days).toFixed(1) : "—";
+  const avg   = total > 0 ? calcSmartAvg(logs, days) : "—";
 
   const bristolCounts = {};
   logs.forEach(l => {
@@ -577,8 +607,8 @@ function renderDuel(mikeLogs, jennaLogs) {
   const { start, end } = getPeriodRange(currentPeriod);
   const days = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
 
-  const mikeAvg  = mikeLogs.length  > 0 ? (mikeLogs.length  / days).toFixed(1) : "—";
-  const jennaAvg = jennaLogs.length > 0 ? (jennaLogs.length / days).toFixed(1) : "—";
+  const mikeAvg  = calcSmartAvg(mikeLogs,  days);
+  const jennaAvg = calcSmartAvg(jennaLogs, days);
 
   const mikeBristol  = getTopBristol(mikeLogs);
   const jennaBristol = getTopBristol(jennaLogs);
@@ -650,7 +680,7 @@ function renderHeadToHead(mikeLogs, jennaLogs) {
 
   const calcStats = (logs) => {
     const total       = logs.length;
-    const avg         = total > 0 ? (total / days).toFixed(1) : "0";
+    const avg         = total > 0 ? calcSmartAvg(logs, days) : "0";
     const topBristol  = getTopBristol(logs);
     const topBLabel   = topBristol ? (BRISTOL[topBristol]?.label || "—") : "—";
     const withSym     = logs.filter(l => l.symptoms && !l.symptoms.includes("none") && l.symptoms.length > 0).length;
