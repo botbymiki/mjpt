@@ -1,11 +1,11 @@
 // ============================================================
 // MJPT — Feed Page
-// Loads and renders chronological log history with filters.
+// Paginated log history — 20 per page, load more on demand.
 // ============================================================
 
 import { db } from "/js/firebase.js";
 import {
-  collection, query, orderBy, getDocs
+  collection, query, orderBy, limit, startAfter, getDocs, where
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
 import {
@@ -13,17 +13,21 @@ import {
   BRISTOL, STOOL_COLORS, formatSymptoms, formatVolume, USERS
 } from "/js/utils.js";
 
+
 // ── STATE ──
-let allLogs     = [];
-let activeFilter = "all";
+const PAGE_SIZE   = 20;
+let activeFilter  = "all";
+let lastDoc       = null;   // Firestore cursor for pagination
+let hasMore       = true;
+let loading       = false;
+let renderedDates = {};     // track which date groups are already rendered
 
 
 // ── INIT ──
 document.addEventListener("DOMContentLoaded", async () => {
   showSkeleton();
   initFilters();
-  await loadLogs();
-  renderFeed();
+  await loadPage();
 });
 
 
@@ -36,31 +40,128 @@ function initFilters() {
     row.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
     chip.classList.add("active");
     activeFilter = chip.dataset.filter;
-    renderFeed();
+    resetAndReload();
   });
 }
 
 
-// ── LOAD ──
-async function loadLogs() {
-  try {
-    const q    = query(collection(db, "logs"), orderBy("timestamp", "desc"));
-    const snap = await getDocs(q);
-    allLogs    = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  } catch (err) {
-    console.error(err);
-    showToast("Failed to load logs");
-  }
+// ── RESET & RELOAD (on filter change) ──
+async function resetAndReload() {
+  lastDoc       = null;
+  hasMore       = true;
+  renderedDates = {};
+  $("#feedList").innerHTML  = "";
+  $("#feedCount").textContent = "";
+  removeLoadMoreBtn();
+  showSkeleton();
+  await loadPage();
 }
 
 
-// ── FILTER ──
-function filterLogs() {
-  switch (activeFilter) {
-    case "mike":  return allLogs.filter(l => l.user === "mike");
-    case "jenna": return allLogs.filter(l => l.user === "jenna");
-    default:      return allLogs;
+// ── LOAD PAGE ──
+async function loadPage() {
+  if (loading || !hasMore) return;
+  loading = true;
+
+  try {
+    // Build query — filter by user if needed
+    let q;
+    if (activeFilter === "mike" || activeFilter === "jenna") {
+      q = lastDoc
+        ? query(collection(db, "logs"), where("user","==",activeFilter), orderBy("timestamp","desc"), startAfter(lastDoc), limit(PAGE_SIZE))
+        : query(collection(db, "logs"), where("user","==",activeFilter), orderBy("timestamp","desc"), limit(PAGE_SIZE));
+    } else {
+      q = lastDoc
+        ? query(collection(db, "logs"), orderBy("timestamp","desc"), startAfter(lastDoc), limit(PAGE_SIZE))
+        : query(collection(db, "logs"), orderBy("timestamp","desc"), limit(PAGE_SIZE));
+    }
+
+    const snap = await getDocs(q);
+    const docs = snap.docs;
+
+    if (docs.length === 0) {
+      hasMore = false;
+      if (!lastDoc) {
+        // First load, no results at all
+        $("#feedList").innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+            <p>No logs yet. Start logging via the Telegram bot.</p>
+          </div>`;
+      }
+      removeLoadMoreBtn();
+      loading = false;
+      return;
+    }
+
+    // Update cursor
+    lastDoc  = docs[docs.length - 1];
+    hasMore  = docs.length === PAGE_SIZE;
+
+    // Append logs to feed
+    const container = $("#feedList");
+    const logs      = docs.map(d => ({ id: d.id, ...d.data() }));
+
+    logs.forEach(log => {
+      const dateKey = relativeDate(log.timestamp);
+
+      // Add date divider if first time seeing this date
+      if (!renderedDates[dateKey]) {
+        renderedDates[dateKey] = true;
+        const divider = document.createElement("div");
+        divider.className   = "date-divider";
+        divider.textContent = dateKey;
+        container.appendChild(divider);
+
+        const list = document.createElement("div");
+        list.className = "history-list";
+        list.id        = `group-${dateKey.replace(/\s/g, "-")}`;
+        container.appendChild(list);
+      }
+
+      const group = document.getElementById(`group-${dateKey.replace(/\s/g, "-")}`);
+      if (group) group.appendChild(buildLogItem(log));
+    });
+
+    // Update count
+    const totalShown = container.querySelectorAll(".history-item").length;
+    $("#feedCount").textContent = `${totalShown} log${totalShown !== 1 ? "s" : ""}${hasMore ? "+" : ""}`;
+
+    // Show/remove load more button
+    if (hasMore) {
+      showLoadMoreBtn();
+    } else {
+      removeLoadMoreBtn();
+    }
+
+  } catch (err) {
+    console.error("loadPage error:", err);
+    showToast("Failed to load logs");
   }
+
+  loading = false;
+}
+
+
+// ── LOAD MORE BUTTON ──
+function showLoadMoreBtn() {
+  removeLoadMoreBtn();
+  const btn = document.createElement("button");
+  btn.id        = "loadMoreBtn";
+  btn.className = "btn btn-secondary";
+  btn.style.cssText = "width:calc(100% - 32px);margin:0 16px 24px;";
+  btn.textContent   = "Load more";
+  btn.addEventListener("click", async () => {
+    btn.textContent = "Loading...";
+    btn.disabled    = true;
+    await loadPage();
+  });
+  document.getElementById("feedList").after(btn);
+}
+
+function removeLoadMoreBtn() {
+  const btn = document.getElementById("loadMoreBtn");
+  if (btn) btn.remove();
 }
 
 
@@ -70,17 +171,15 @@ function showSkeleton() {
   container.innerHTML = "";
 
   for (let g = 0; g < 2; g++) {
-    // date divider skeleton
     const div = document.createElement("div");
     div.className = "date-divider";
     div.innerHTML = `<span class="skeleton" style="display:inline-block;width:60px;height:11px;border-radius:4px">&nbsp;</span>`;
     container.appendChild(div);
 
-    // list skeleton
     const list = document.createElement("div");
     list.className = "history-list";
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const item = document.createElement("div");
       item.className = "history-item";
       item.style.pointerEvents = "none";
@@ -88,7 +187,7 @@ function showSkeleton() {
         <div class="hi-dot skeleton" style="background:transparent;width:10px;height:10px;border-radius:50%"></div>
         <div class="hi-body" style="gap:6px;display:flex;flex-direction:column">
           <span class="skeleton" style="display:inline-block;width:40px;height:10px;border-radius:4px">&nbsp;</span>
-          <span class="skeleton" style="display:inline-block;width:${140 + i * 20}px;height:13px;border-radius:4px">&nbsp;</span>
+          <span class="skeleton" style="display:inline-block;width:${130 + i*18}px;height:13px;border-radius:4px">&nbsp;</span>
         </div>
         <div class="hi-right" style="gap:6px;display:flex;flex-direction:column;align-items:flex-end">
           <span class="skeleton" style="display:inline-block;width:36px;height:10px;border-radius:4px">&nbsp;</span>
@@ -104,54 +203,14 @@ function showSkeleton() {
 }
 
 
-// ── RENDER ──
-function renderFeed() {
-  const container = $("#feedList");
-  const logs      = filterLogs();
-
-  $("#feedCount").textContent = `${logs.length} log${logs.length !== 1 ? "s" : ""}`;
-
-  if (logs.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
-        <p>No logs found. Start logging via the Telegram bot.</p>
-      </div>`;
-    return;
-  }
-
-  // Group by date
-  const groups = {};
-  logs.forEach(log => {
-    const key = relativeDate(log.timestamp);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(log);
-  });
-
-  container.innerHTML = "";
-
-  Object.entries(groups).forEach(([date, dateLogs]) => {
-    const divider = document.createElement("div");
-    divider.className = "date-divider";
-    divider.textContent = date;
-    container.appendChild(divider);
-
-    const list = document.createElement("div");
-    list.className = "history-list";
-    dateLogs.forEach(log => list.appendChild(buildLogItem(log)));
-    container.appendChild(list);
-  });
-}
-
-
-// ── BUILD LOG ITEM — compact card ──
+// ── BUILD LOG ITEM ──
 function buildLogItem(log) {
-  const bristol = BRISTOL[log.bristolType] || BRISTOL[4];
+  const bristol  = BRISTOL[log.bristolType] || BRISTOL[4];
   const colorHex = STOOL_COLORS[log.color]?.hex || "#8B4513";
-  const time    = formatTime(log.timestamp);
-  const user    = USERS[log.user] || USERS.mike;
-  const vol     = formatVolume(log.volume);
-  const hasSymp = log.symptoms && !log.symptoms.includes("none") && log.symptoms.length > 0;
+  const time     = formatTime(log.timestamp);
+  const user     = USERS[log.user] || USERS.mike;
+  const vol      = formatVolume(log.volume);
+  const hasSymp  = log.symptoms && !log.symptoms.includes("none") && log.symptoms.length > 0;
 
   const item = document.createElement("div");
   item.className = "history-item";
@@ -159,7 +218,7 @@ function buildLogItem(log) {
     <div class="hi-dot" style="background:${colorHex}"></div>
     <div class="hi-body">
       <div class="hi-who ${log.user}">${user.name}</div>
-      <div class="hi-desc">${bristol.label} · ${vol}${hasSymp ? " · " + log.symptoms.map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join(", ") : ""}</div>
+      <div class="hi-desc">${bristol.label} · ${vol}${hasSymp ? " · " + log.symptoms.map(s => s.charAt(0).toUpperCase()+s.slice(1)).join(", ") : ""}</div>
       ${log.notes ? `<div class="hi-meta" style="font-style:italic;color:var(--color-ink-soft)">"${log.notes}"</div>` : ""}
     </div>
     <div class="hi-right">
@@ -241,5 +300,3 @@ function showLogDetail(log) {
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
 }
-
-// Delete is admin-only. See /api/admin?key=YOUR_KEY
