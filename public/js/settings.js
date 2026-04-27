@@ -8,7 +8,7 @@ import {
   doc, getDoc, setDoc, getDocs, collection
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-import { $, showToast, BRISTOL, STOOL_COLORS } from "/js/utils.js";
+import { $, showToast, BRISTOL, STOOL_COLORS, VOLUMES } from "/js/utils.js";
 
 
 // ── DEFAULTS ──
@@ -110,8 +110,8 @@ function formatPreset(preset) {
   const b        = BRISTOL[preset.bristolType];
   const bristol  = b?.label || `Type ${preset.bristolType}`;
   const color    = STOOL_COLORS[preset.color]?.label || "Brown";
-  const symptoms = preset.symptoms?.includes("none") ? "No symptoms" : preset.symptoms?.join(", ") || "No symptoms";
-  return `${bristol} · ${color} · ${symptoms}`;
+  const volume   = VOLUMES[preset.volume]?.label || "Normal";
+  return `${bristol} · ${volume} · ${color}`;
 }
 
 
@@ -121,8 +121,8 @@ function bindActions() {
   safe("editJennaName",    () => editName("jenna"));
   safe("editMikeReminder", () => openReminderSheet("mike"));
   safe("editJennaReminder",() => openReminderSheet("jenna"));
-  safe("editMikePreset",   () => editPreset("mike"));
-  safe("editJennaPreset",  () => editPreset("jenna"));
+  safe("editMikePreset",   () => openPresetSheet("mike"));
+  safe("editJennaPreset",  () => openPresetSheet("jenna"));
 }
 
 function safe(id, fn) {
@@ -182,9 +182,8 @@ window.toggleDay = function(btn) {
 };
 
 window.closeSheetOutside = function(e) {
-  if (e.target.id === "reminderSheet") {
-    document.getElementById("reminderSheet").classList.remove("open");
-  }
+  if (e.target.id === "reminderSheet") document.getElementById("reminderSheet").classList.remove("open");
+  if (e.target.id === "presetSheet")   document.getElementById("presetSheet").classList.remove("open");
 };
 
 window.saveReminder = async function() {
@@ -205,31 +204,49 @@ window.saveReminder = async function() {
 };
 
 
-// ── EDIT PRESET ──
-async function editPreset(user) {
+// ── EDIT PRESET (bottom sheet) ──
+let activePresetUser = null;
+
+function openPresetSheet(user) {
+  activePresetUser = user;
   const name    = settings[user]?.name || user;
-  const current = settings[user]?.preset || { bristolType: 4, color: "brown", symptoms: ["none"] };
+  const current = settings[user]?.preset || { bristolType: 4, color: "brown", volume: "normal" };
 
-  const typeInput = prompt(
-    `${name}'s default Bristol type (1–7):\n1=Pellet 2=Rock 3=Crackle 4=Soft 5=Blob 6=Mush 7=Liquid`,
-    current.bristolType
-  );
-  if (!typeInput) return;
-  const bristolType = parseInt(typeInput);
-  if (bristolType < 1 || bristolType > 7 || isNaN(bristolType)) {
-    showToast("Invalid. Enter a number 1–7.");
-    return;
-  }
+  document.getElementById("presetSheetTitle").textContent = `${name}'s Quick Log Preset`;
 
-  const colorOptions = Object.keys(STOOL_COLORS).join(", ");
-  const color        = prompt(`${name}'s default color (${colorOptions}):`, current.color);
-  if (!color || !STOOL_COLORS[color]) { if (color) showToast("Invalid color"); return; }
+  // Set bristol buttons
+  document.querySelectorAll("[data-bristol]").forEach(btn => {
+    btn.classList.toggle("active", parseInt(btn.dataset.bristol) === parseInt(current.bristolType));
+  });
 
-  settings[user].preset = { bristolType, color, symptoms: ["none"] };
+  // Set color and volume selects
+  document.getElementById("presetColor").value  = current.color  || "brown";
+  document.getElementById("presetVolume").value = current.volume || "normal";
+
+  document.getElementById("presetSheet").classList.add("open");
+}
+
+window.selectBristol = function(btn) {
+  document.querySelectorAll("[data-bristol]").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+};
+
+window.savePreset = async function() {
+  if (!activePresetUser) return;
+
+  const selectedBtn = document.querySelector("[data-bristol].active");
+  if (!selectedBtn) { showToast("Select a Bristol type"); return; }
+
+  const bristolType = parseInt(selectedBtn.dataset.bristol);
+  const color       = document.getElementById("presetColor").value;
+  const volume      = document.getElementById("presetVolume").value;
+
+  settings[activePresetUser].preset = { bristolType, color, volume, symptoms: ["none"] };
   await saveSettings();
   renderSettings();
+  document.getElementById("presetSheet").classList.remove("open");
   showToast("Preset updated");
-}
+};
 
 
 // ── SAVE ──
