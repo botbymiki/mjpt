@@ -306,7 +306,13 @@ function adminHTML(key) {
       <div class="page-sub">Run the cron manually to debug</div>
       <div class="card">
         <div class="card-label">Run cron now</div>
-        <button class="btn btn-primary" id="cronBtn" onclick="testCron()">Run cron now</button>
+        <button class="btn btn-primary" id="cronBtn" onclick="testCron()">Run cron (normal)</button>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" onclick="testCron('reminder')">Force reminder</button>
+          <button class="btn btn-ghost btn-sm" onclick="testCron('recap')">Force recap</button>
+          <button class="btn btn-ghost btn-sm" onclick="testCron('alert')">Force alert</button>
+          <button class="btn btn-ghost btn-sm" onclick="testCron('all')">Force all</button>
+        </div>
       </div>
       <div class="result" id="cronResult">Click run to see output.</div>
     </div>
@@ -457,10 +463,11 @@ function buildAdminJS(key) {
     "  });",
     "}",
 
-    "function testCron(){",
+    "function testCron(force){",
     "  var btn=document.getElementById('cronBtn');",
     "  btn.disabled=true;btn.textContent='Running...';",
-    "  fetch('/api/cron?key='+KEY).then(function(r){return r.json();}).then(function(data){",
+    "  var url='/api/cron?key='+KEY+(force?'&force='+force:'');",
+    "  fetch(url).then(function(r){return r.json();}).then(function(data){",
     "    var el=document.getElementById('cronResult');",
     "    if(data&&data.results){",
     "      el.className='result ok';",
