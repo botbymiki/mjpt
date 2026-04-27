@@ -303,6 +303,53 @@
   </div>
 </div>
 
+<!-- PRESET BOTTOM SHEET -->
+<div class="sheet-overlay" id="presetSheet" onclick="closeSheetOutside(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="presetSheetTitle">Mike's Quick Log Preset</div>
+
+    <div class="sheet-field">
+      <label class="sheet-label">Bristol Type</label>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+        <button class="day-btn" style="width:100%;border-radius:10px;height:auto;padding:8px 4px;font-size:11px" data-bristol="1" onclick="selectBristol(this)">1<br><span style="font-weight:400;font-size:9px;opacity:0.6">Pellet</span></button>
+        <button class="day-btn" style="width:100%;border-radius:10px;height:auto;padding:8px 4px;font-size:11px" data-bristol="2" onclick="selectBristol(this)">2<br><span style="font-weight:400;font-size:9px;opacity:0.6">Rock</span></button>
+        <button class="day-btn" style="width:100%;border-radius:10px;height:auto;padding:8px 4px;font-size:11px" data-bristol="3" onclick="selectBristol(this)">3<br><span style="font-weight:400;font-size:9px;opacity:0.6">Crackle</span></button>
+        <button class="day-btn" style="width:100%;border-radius:10px;height:auto;padding:8px 4px;font-size:11px" data-bristol="4" onclick="selectBristol(this)">4<br><span style="font-weight:400;font-size:9px;opacity:0.6">Soft</span></button>
+        <button class="day-btn" style="width:100%;border-radius:10px;height:auto;padding:8px 4px;font-size:11px" data-bristol="5" onclick="selectBristol(this)">5<br><span style="font-weight:400;font-size:9px;opacity:0.6">Blob</span></button>
+        <button class="day-btn" style="width:100%;border-radius:10px;height:auto;padding:8px 4px;font-size:11px" data-bristol="6" onclick="selectBristol(this)">6<br><span style="font-weight:400;font-size:9px;opacity:0.6">Mush</span></button>
+        <button class="day-btn" style="width:100%;border-radius:10px;height:auto;padding:8px 4px;font-size:11px" data-bristol="7" onclick="selectBristol(this)">7<br><span style="font-weight:400;font-size:9px;opacity:0.6">Liquid</span></button>
+      </div>
+    </div>
+
+    <div class="sheet-field">
+      <label class="sheet-label">Default Color</label>
+      <select class="sheet-select" id="presetColor">
+        <option value="brown">Brown</option>
+        <option value="dark_brown">Dark Brown</option>
+        <option value="yellow">Yellow</option>
+        <option value="green">Green</option>
+        <option value="red">Red</option>
+        <option value="black">Black</option>
+        <option value="pale">Pale</option>
+      </select>
+    </div>
+
+    <div class="sheet-field">
+      <label class="sheet-label">Default Volume</label>
+      <select class="sheet-select" id="presetVolume">
+        <option value="child_size">Child Size</option>
+        <option value="small">Small</option>
+        <option value="normal">Normal</option>
+        <option value="huge">Huge</option>
+        <option value="gigantic">Gigantic</option>
+      </select>
+    </div>
+
+    <button class="sheet-save" onclick="savePreset()">Save preset</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script type="module" src="/js/settings.js"></script>
