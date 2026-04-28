@@ -5,7 +5,7 @@
 
 import { db } from "/js/firebase.js";
 import {
-  collection, query, orderBy, limit, startAfter, getDocs, where
+  collection, query, orderBy, limit, startAfter, getDocs
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
 import {
@@ -64,48 +64,50 @@ async function loadPage() {
   loading = true;
 
   try {
-    // Build query — filter by user if needed
+    // Simple query — no composite index needed
+    // Fetch ordered by timestamp, filter user in JS
     let q;
-    if (activeFilter === "mike" || activeFilter === "jenna") {
-      q = lastDoc
-        ? query(collection(db, "logs"), where("user","==",activeFilter), orderBy("timestamp","desc"), startAfter(lastDoc), limit(PAGE_SIZE))
-        : query(collection(db, "logs"), where("user","==",activeFilter), orderBy("timestamp","desc"), limit(PAGE_SIZE));
+    if (lastDoc) {
+      q = query(collection(db, "logs"), orderBy("timestamp","desc"), startAfter(lastDoc), limit(PAGE_SIZE * 3));
     } else {
-      q = lastDoc
-        ? query(collection(db, "logs"), orderBy("timestamp","desc"), startAfter(lastDoc), limit(PAGE_SIZE))
-        : query(collection(db, "logs"), orderBy("timestamp","desc"), limit(PAGE_SIZE));
+      q = query(collection(db, "logs"), orderBy("timestamp","desc"), limit(PAGE_SIZE * 3));
     }
 
     const snap = await getDocs(q);
-    const docs = snap.docs;
+    let docs = snap.docs;
 
-    if (docs.length === 0) {
-      hasMore = false;
-      if (!lastDoc) {
-        // First load, no results at all
-        $("#feedList").innerHTML = `
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
-            <p>No logs yet. Start logging via the Telegram bot.</p>
-          </div>`;
-      }
+    // Filter by user in JS — avoids composite index requirement
+    if (activeFilter === "mike" || activeFilter === "jenna") {
+      docs = docs.filter(d => d.data().user === activeFilter);
+    }
+
+    // Trim to page size
+    const pageDocs = docs.slice(0, PAGE_SIZE);
+    hasMore = snap.docs.length === PAGE_SIZE * 3; // approximation
+
+    if (pageDocs.length === 0 && !lastDoc) {
+      $("#feedList").innerHTML = `
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+          <p>No logs yet. Start logging via the Telegram bot.</p>
+        </div>`;
       removeLoadMoreBtn();
       loading = false;
       return;
     }
 
-    // Update cursor
-    lastDoc  = docs[docs.length - 1];
-    hasMore  = docs.length === PAGE_SIZE;
+    // Update cursor to last raw doc (not filtered)
+    if (snap.docs.length > 0) {
+      lastDoc = snap.docs[snap.docs.length - 1];
+    }
 
-    // Append logs to feed
+    // Render
     const container = $("#feedList");
-    const logs      = docs.map(d => ({ id: d.id, ...d.data() }));
+    const logs      = pageDocs.map(d => ({ id: d.id, ...d.data() }));
 
     logs.forEach(log => {
       const dateKey = relativeDate(log.timestamp);
 
-      // Add date divider if first time seeing this date
       if (!renderedDates[dateKey]) {
         renderedDates[dateKey] = true;
         const divider = document.createElement("div");
@@ -127,15 +129,21 @@ async function loadPage() {
     const totalShown = container.querySelectorAll(".history-item").length;
     $("#feedCount").textContent = `${totalShown} log${totalShown !== 1 ? "s" : ""}${hasMore ? "+" : ""}`;
 
-    // Show/remove load more button
-    if (hasMore) {
+    if (hasMore && pageDocs.length > 0) {
       showLoadMoreBtn();
     } else {
       removeLoadMoreBtn();
     }
 
   } catch (err) {
-    console.error("loadPage error:", err);
+    console.error("loadPage error:", err.code, err.message);
+    const container = $("#feedList");
+    container.innerHTML = `
+      <div class="empty-state">
+        <p>Failed to load: ${err.message}</p>
+        <button class="btn btn-secondary" onclick="resetAndReload()" style="margin-top:12px">Retry</button>
+      </div>`;
+    $("#feedCount").textContent = "";
     showToast("Failed to load logs");
   }
 
