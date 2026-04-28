@@ -899,7 +899,7 @@ function renderStory(mikeLogs, jennaLogs) {
   const mikeStats  = { ...buildStats(mikeLogs),  user: "mike"  };
   const jennaStats = { ...buildStats(jennaLogs), user: "jenna" };
   const syncRate   = calcSyncRate(mikeLogs, jennaLogs);
-  const story      = generateStory(mikeStats, jennaStats, syncRate);
+  const story      = generateStory(mikeStats, jennaStats, syncRate, currentPeriod);
 
   container.innerHTML = `<div class="story-text">${story}</div>`;
 }
