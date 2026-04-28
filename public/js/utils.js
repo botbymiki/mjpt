@@ -471,55 +471,89 @@ export function calcSyncRate(mikeLogs, jennaLogs, tz = "Asia/Makassar") {
 
 
 // ── STORY GENERATOR ──
-export function generateStory(mikeStats, jennaStats, syncRate) {
+export function generateStory(mikeStats, jennaStats, syncRate, period) {
   const sentences = [];
 
-  const name = (s) => s.user === "mike" ? "Mike" : "Jenna";
+  const periodWord = {
+    today: "today",
+    week:  "this week",
+    month: "this month",
+    year:  "this year",
+    all:   "overall"
+  }[period] || "this period";
+
+  const periodSpan = {
+    today: "day",
+    week:  "week",
+    month: "month",
+    year:  "year",
+    all:   "overall"
+  }[period] || "period";
+
   const describe = (s) => {
-    if (s.consistencyPct >= 70) return "a strong week gut-wise";
-    if (s.consistencyPct >= 50) return "a decent week";
-    if (s.hardCount >= 3)       return "a tough week with some hard stools";
-    if (s.looseCount >= 3)      return "a rough week with loose stools";
-    return "a mixed week";
+    if (s.total === 0)              return `didn't log ${periodWord}`;
+    if (s.consistencyPct >= 80)    return `had an excellent ${periodSpan} gut-wise`;
+    if (s.consistencyPct >= 60)    return `had a solid ${periodSpan}`;
+    if (s.consistencyPct >= 40)    return `had a decent ${periodSpan}`;
+    if (s.hardCount >= Math.max(3, s.total * 0.3))
+                                   return `had a tough ${periodSpan} with hard stools`;
+    if (s.looseCount >= Math.max(3, s.total * 0.3))
+                                   return `had a rough ${periodSpan} with loose stools`;
+    return `had a mixed ${periodSpan}`;
   };
 
-  // Sentence 1 — Mike's week
-  let mikeSentence = `Mike logged ${mikeStats.total} time${mikeStats.total !== 1 ? "s" : ""} — ${describe(mikeStats)}.`;
-  if (mikeStats.total === 0) mikeSentence = "Mike didn't log this period.";
-  sentences.push(mikeSentence);
+  // Sentence 1 — Mike
+  const mikeLogsWord = `${mikeStats.total} time${mikeStats.total !== 1 ? "s" : ""}`;
+  sentences.push(
+    mikeStats.total === 0
+      ? `Mike didn't log ${periodWord}.`
+      : `Mike logged ${mikeLogsWord} ${periodWord} and ${describe(mikeStats)}.`
+  );
 
-  // Sentence 2 — Jenna's week
-  let jennaSentence = `Jenna logged ${jennaStats.total} time${jennaStats.total !== 1 ? "s" : ""} — ${describe(jennaStats)}.`;
-  if (jennaStats.total === 0) jennaSentence = "Jenna didn't log this period.";
-  sentences.push(jennaSentence);
+  // Sentence 2 — Jenna
+  const jennaLogsWord = `${jennaStats.total} time${jennaStats.total !== 1 ? "s" : ""}`;
+  sentences.push(
+    jennaStats.total === 0
+      ? `Jenna didn't log ${periodWord}.`
+      : `Jenna logged ${jennaLogsWord} and ${describe(jennaStats)}.`
+  );
 
-  // Sentence 3 — specific observation
-  if (mikeStats.hardCount >= 2) {
-    sentences.push(`Mike had ${mikeStats.hardCount} hard stools — more water and fibre could help.`);
-  } else if (jennaStats.hardCount >= 2) {
-    sentences.push(`Jenna had ${jennaStats.hardCount} hard stools — remind her to stay hydrated.`);
-  } else if (mikeStats.looseCount >= 2) {
-    sentences.push(`Mike had ${mikeStats.looseCount} loose stools — worth keeping an eye on diet and stress.`);
-  } else if (jennaStats.looseCount >= 2) {
-    sentences.push(`Jenna had ${jennaStats.looseCount} loose stools — check for food triggers.`);
+  // Sentence 3 — Specific health observation (scaled to period)
+  const hardThreshold  = period === "today" ? 1 : period === "week" ? 2 : 3;
+  const looseThreshold = period === "today" ? 1 : period === "week" ? 2 : 3;
+
+  if (mikeStats.hardCount >= hardThreshold) {
+    sentences.push(`Mike had ${mikeStats.hardCount} hard stool${mikeStats.hardCount > 1 ? "s" : ""} — more water and fibre could help.`);
+  } else if (jennaStats.hardCount >= hardThreshold) {
+    sentences.push(`Jenna had ${jennaStats.hardCount} hard stool${jennaStats.hardCount > 1 ? "s" : ""} — remind her to stay hydrated.`);
+  } else if (mikeStats.looseCount >= looseThreshold) {
+    sentences.push(`Mike had ${mikeStats.looseCount} loose stool${mikeStats.looseCount > 1 ? "s" : ""} — worth watching diet and stress.`);
+  } else if (jennaStats.looseCount >= looseThreshold) {
+    sentences.push(`Jenna had ${jennaStats.looseCount} loose stool${jennaStats.looseCount > 1 ? "s" : ""} — check for food triggers.`);
   }
 
-  // Sentence 4 — sync observation
-  if (syncRate >= 60) {
-    sentences.push(`You two were in sync ${syncRate}% of shared days — gut twins! 👯`);
-  } else if (syncRate >= 30) {
-    sentences.push(`Your schedules overlapped ${syncRate}% of the time.`);
-  } else if (syncRate > 0) {
-    sentences.push(`You were on very different schedules this period (${syncRate}% sync).`);
+  // Sentence 4 — Sync (skip for "today")
+  if (period !== "today" && mikeStats.total > 0 && jennaStats.total > 0) {
+    if (syncRate >= 60) {
+      sentences.push(`You two were in sync ${syncRate}% of shared days — gut twins! 👯`);
+    } else if (syncRate >= 30) {
+      sentences.push(`Your schedules overlapped on ${syncRate}% of shared days.`);
+    } else if (syncRate > 0) {
+      sentences.push(`You were on pretty different schedules ${periodWord} (${syncRate}% sync).`);
+    }
   }
 
-  // Sentence 5 — closing
-  const bothGood = mikeStats.consistencyPct >= 60 && jennaStats.consistencyPct >= 60;
-  const bothBad  = mikeStats.consistencyPct < 40  && jennaStats.consistencyPct < 40;
-  if (bothGood) {
-    sentences.push("Both doing well — keep it up! 💚");
+  // Sentence 5 — Closing
+  const bothGood = mikeStats.consistencyPct >= 60 && jennaStats.consistencyPct >= 60 && mikeStats.total > 0 && jennaStats.total > 0;
+  const bothBad  = mikeStats.total > 0 && jennaStats.total > 0 && mikeStats.consistencyPct < 40 && jennaStats.consistencyPct < 40;
+  const neitherLogged = mikeStats.total === 0 && jennaStats.total === 0;
+
+  if (neitherLogged) {
+    sentences.push(`No logs ${periodWord}. Start logging via the bot! 💩`);
+  } else if (bothGood) {
+    sentences.push(`Both doing well — keep it up! 💚`);
   } else if (bothBad) {
-    sentences.push("Both could use more water, fibre, and movement this week. 💧");
+    sentences.push(`Both could use more water, fibre, and movement ${periodWord}. 💧`);
   }
 
   return sentences.join(" ");
