@@ -101,6 +101,11 @@ async function loadPage() {
       lastDoc = snap.docs[snap.docs.length - 1];
     }
 
+    // Clear skeleton on first load
+    if (!lastDoc || container.querySelector(".skeleton")) {
+      container.innerHTML = "";
+    }
+
     // Render
     const container = $("#feedList");
     const logs      = pageDocs.map(d => ({ id: d.id, ...d.data() }));
