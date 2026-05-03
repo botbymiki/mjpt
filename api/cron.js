@@ -143,7 +143,9 @@ async function processUser(userId, config, force) {
       const customMsgs = settings.reminderMessages;
       const pool       = (customMsgs?.length > 0) ? customMsgs : DEFAULT_REMINDERS[userId];
       const msg        = pool[Math.floor(Math.random() * pool.length)];
-      await sendReminderMsg(chatId, msg);
+      console.log(`[${userId}] Sending reminder to chatId: ${chatId}, msg: ${msg.slice(0,50)}`);
+      const result = await sendReminderMsg(chatId, msg);
+      console.log(`[${userId}] Telegram response:`, JSON.stringify(result));
       await db.collection("reminder_logs").add({ user: userId, sentAt: Timestamp.now(), type: "daily" });
       actions.push({ type: "reminder", sent: true, msg, forced: !!force });
     } else {
@@ -447,7 +449,7 @@ function getLocalDayOfWeek(now, tz) {
 }
 
 async function sendMsg(chatId, text, keyboard, opts = {}) {
-  await fetch(`${API}/sendMessage`, {
+  const res = await fetch(`${API}/sendMessage`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body:    JSON.stringify({
@@ -457,10 +459,13 @@ async function sendMsg(chatId, text, keyboard, opts = {}) {
       ...opts
     })
   });
+  const json = await res.json();
+  if (!json.ok) console.error(`[sendMsg] Failed:`, JSON.stringify(json));
+  return json;
 }
 
 async function sendReminderMsg(chatId, text) {
-  await sendMsg(chatId, text, [
+  return sendMsg(chatId, text, [
     [
       { text: "Quick log",  callback_data: "log:quick:quick" },
       { text: "Full log",   callback_data: "log:full:full"   },
