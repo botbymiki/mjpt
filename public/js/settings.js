@@ -97,13 +97,17 @@ function el(id) {
 }
 
 function formatReminder(r, tz) {
-  if (!r) return `Daily · 20:00 · ${tz}`;
+  if (!r) return `Daily · 8:00 PM · ${tz}`;
   const dayNames = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const hour     = parseInt((r.time || "20:00").split(":")[0]);
+  const ampm     = hour >= 12 ? "PM" : "AM";
+  const h12      = hour % 12 || 12;
+  const timeStr  = `${h12}:00 ${ampm}`;
   if (r.frequency === "custom" && r.days?.length) {
-    return `${r.days.map(d => dayNames[d]).join("/")} · ${r.time} · ${tz}`;
+    return `${r.days.map(d => dayNames[d]).join("/")} · ${timeStr} · ${tz}`;
   }
-  if (r.frequency === "weekly") return `Weekly (Mon) · ${r.time} · ${tz}`;
-  return `Daily · ${r.time} · ${tz}`;
+  if (r.frequency === "weekly") return `Weekly (Mon) · ${timeStr} · ${tz}`;
+  return `Daily · ${timeStr} · ${tz}`;
 }
 
 function formatPreset(preset) {
@@ -154,8 +158,9 @@ function openReminderSheet(user) {
   // Set frequency
   document.getElementById("sheetFrequency").value = r.frequency || "daily";
 
-  // Set time
-  document.getElementById("sheetTime").value = r.time || "20:00";
+  // Set hour — extract just the hour part from stored time
+  const storedHour = (r.time || "20:00").split(":")[0].padStart(2, "0");
+  document.getElementById("sheetTime").value = storedHour;
 
   // Set custom days
   document.querySelectorAll(".day-btn").forEach(btn => {
@@ -190,7 +195,8 @@ window.saveReminder = async function() {
   if (!activeSheet) return;
 
   const frequency = document.getElementById("sheetFrequency").value;
-  const time      = document.getElementById("sheetTime").value;
+  const hour      = document.getElementById("sheetTime").value;
+  const time      = `${hour.padStart(2,"0")}:00`; // always store as HH:00
   const days      = frequency === "custom"
     ? [...document.querySelectorAll(".day-btn.active")].map(b => parseInt(b.dataset.day))
     : frequency === "weekly" ? [1] : [];
