@@ -500,19 +500,16 @@ async function saveLog(chatId, data, msgId) {
 
   try {
     // Gather context BEFORE saving so daysSince is accurate
-    const tz            = data.user === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
-    const localHour     = getLocalHour(new Date(), tz);
-    const streak        = await getStreak(data.user, tz);
-    const daysSince     = await getDaysSinceLastLog(data.user, tz);
-    const logsToday     = await countLoggedToday(data.user, tz);
-    const partnerKey    = data.user === "mike" ? "jenna" : "mike";
-    const partnerLogged = await hasLoggedTodayKey(partnerKey, data.user === "mike" ? "Asia/Makassar" : "Australia/Melbourne");
-    const partnerName   = partnerKey === "mike" ? "Mike" : "Jenna";
+    const tz        = data.user === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
+    const localHour = getLocalHour(new Date(), tz);
+    const streak    = await getStreak(data.user, tz);
+    const daysSince = await getDaysSinceLastLog(data.user, tz);
+    const logsToday = await countLoggedToday(data.user, tz);
 
     await db.collection("logs").add(data);
 
     const msg = buildConfirmationMsg({
-      data, localHour, streak, daysSince, logsToday, partnerLogged, partnerName
+      data, localHour, streak, daysSince, logsToday
     });
 
     if (msgId) {
@@ -533,13 +530,12 @@ async function saveLog(chatId, data, msgId) {
 
 
 // ── BUILD CONFIRMATION MESSAGE ──
-function buildConfirmationMsg({ data, localHour, streak, daysSince, logsToday, partnerLogged, partnerName }) {
-  const b       = BRISTOL[data.bristolType] || BRISTOL[4];
-  const vol     = formatVolume(data.volume);
-  const color   = data.color.replace(/_/g, " ");
-  const t       = data.bristolType;
-  const syms    = data.symptoms || ["none"];
-  const hasSymp    = !syms.includes("none") && syms.length > 0;
+function buildConfirmationMsg({ data, localHour, streak, daysSince, logsToday }) {
+  const b          = BRISTOL[data.bristolType] || BRISTOL[4];
+  const vol        = formatVolume(data.volume);
+  const color      = data.color.replace(/_/g, " ");
+  const t          = data.bristolType;
+  const syms       = data.symptoms || ["none"];
   const hasCramps  = syms.includes("cramps");
   const hasBloat   = syms.includes("bloating");
   const hasUrgency = syms.includes("urgency");
@@ -548,89 +544,78 @@ function buildConfirmationMsg({ data, localHour, streak, daysSince, logsToday, p
   const isSoft     = t === 4;
   const isLoose    = t >= 6;
 
-  const parts = [];
+  // ── BLOCK 1: opener + details + observation (all one paragraph) ──
+  const timeWord   = getTimeWord(localHour);
+  const observation = buildObservationParagraph({ t, b, isHard, isSoft, isLoose,
+    hasSymp: !syms.includes("none") && syms.length > 0,
+    hasCramps, hasBloat, hasUrgency, hasBlood, vol, color, data });
 
-  // ── LINE 1: opener + details (all in one line) ──
-  const timeWord = getTimeWord(localHour);
-  let line1 = `${timeWord} — ${b.label}, ${vol}, ${color}.`;
-  parts.push(line1);
+  const block1 = observation
+    ? `${timeWord} — ${b.label}, ${vol}, ${color}. ${observation}`
+    : `${timeWord} — ${b.label}, ${vol}, ${color}.`;
 
-  // ── PARAGRAPH 2: flowing observation combining bristol + symptom + volume + color ──
-  const p2 = buildObservationParagraph({ t, b, isHard, isSoft, isLoose, hasSymp, hasCramps, hasBloat, hasUrgency, hasBlood, vol, color, data });
-  if (p2) parts.push(p2);
+  // ── BLOCK 2: gap/double + streak + notes (combined into one paragraph) ──
+  const b2parts = [];
 
-  // ── PARAGRAPH 3: gap OR double drop (only if notable) ──
   if (daysSince >= 5) {
-    parts.push(pick([
-      `Been ${daysSince} days since your last log. Hope everything came out okay. Glad you're back.`,
+    b2parts.push(pick([
+      `Been ${daysSince} days since your last log. Hope everything came out okay. Glad you are back.`,
       `${daysSince} days between logs — your gut was clearly taking its time. Welcome back.`,
-      `${daysSince} days is a while. Better late than never — how are you feeling?`,
-      `Been ${daysSince} days. Everything alright? Good to see you logging again.`
+      `Back after ${daysSince} days. Better late than never — how are you feeling?`
     ]));
   } else if (daysSince >= 3) {
-    parts.push(pick([
+    b2parts.push(pick([
       `Been ${daysSince} days since the last one — your gut was clearly building suspense.`,
       `${daysSince} days between logs. Hope things are moving better now.`,
-      `Back at it after ${daysSince} days. Your gut had a lot to think about apparently.`,
-      `${daysSince} days is a decent break. Good to have you back on the board.`
+      `Back at it after ${daysSince} days. Your gut had a lot to think about apparently.`
     ]));
   } else if (logsToday >= 2) {
-    parts.push(pick([
+    b2parts.push(pick([
       `Second one today — your gut is clearly having a productive day.`,
       `Going again already. Your gut is very vocal today.`,
-      `Two in one day. Your gut has a lot to say apparently.`,
-      `Another visit today. Your gut means business.`
+      `Two in one day. Your gut has a lot to say apparently.`
     ]));
   }
 
-  // ── PARAGRAPH 4: streak (only notable milestones) ──
   if (streak >= 30) {
-    parts.push(pick([
-      `${streak} days of logging straight. That is not a habit anymore, that is a lifestyle.`,
-      `${streak}-day streak. You have turned gut tracking into a genuine discipline. Impressive.`,
-      `${streak} days in a row. Your gut data over this period is genuinely valuable.`
+    b2parts.push(pick([
+      `${streak} days of logging straight — that is not a habit anymore, that is a lifestyle.`,
+      `${streak}-day streak. You have turned gut tracking into a genuine discipline.`
     ]));
   } else if (streak >= 14) {
-    parts.push(pick([
-      `${streak} days in a row. Two weeks of consistent logging — your gut data is looking really good right now.`,
-      `${streak}-day streak. That is real dedication to your gut health.`,
-      `${streak} days straight. Your gut appreciates the attention.`
+    b2parts.push(pick([
+      `${streak} days in a row by the way. Two weeks of consistent logging — your gut data is looking really good.`,
+      `${streak}-day streak. That is real dedication to your gut health.`
     ]));
   } else if (streak >= 7) {
-    parts.push(pick([
+    b2parts.push(pick([
       `${streak} days in a row. A full week of logging — that is worth acknowledging.`,
-      `${streak}-day streak. One week and counting, keep going.`,
-      `${streak} days straight. Your gut is getting properly tracked now.`
+      `${streak}-day streak. One week and counting, keep going.`
     ]));
   } else if (streak >= 5) {
-    parts.push(pick([
+    b2parts.push(pick([
       `${streak} days in a row. The habit is forming — keep it going.`,
-      `${streak}-day streak. You are building something real here.`,
-      `${streak} days straight. Momentum is everything, do not stop now.`
+      `${streak}-day streak. You are building something here.`
     ]));
   } else if (streak >= 3) {
-    parts.push(pick([
-      `${streak} days in a row. Your gut is finding its rhythm.`,
-      `${streak}-day streak. Small but meaningful — keep it going.`,
+    b2parts.push(pick([
+      `${streak} days in a row by the way. Your gut is finding its rhythm.`,
       `Three days straight. The habit is starting to form.`
     ]));
   }
 
-  // ── LAST LINE: partner ──
-  if (partnerLogged) {
-    parts.push(pick([
-      `${partnerName} already logged today by the way.`,
-      `${partnerName} beat you to it — they already checked in today.`,
-      `${partnerName} already did their log today too, for what it's worth.`,
-      `Just so you know, ${partnerName} already logged today.`,
-      `${partnerName} was ahead of you today — they logged earlier.`
+  if (data.notes) {
+    const note = data.notes.charAt(0).toLowerCase() + data.notes.slice(1).replace(/\.$/, "");
+    b2parts.push(pick([
+      `You also noted that ${note}.`,
+      `Worth mentioning — ${note}.`,
+      `You added: ${note}.`
     ]));
   }
 
-  // ── NOTES ──
-  if (data.notes) parts.push(`_"${data.notes}"_`);
+  const block2 = b2parts.join(" ");
 
-  return parts.join("\n\n");
+  return block2 ? `${block1}\n\n${block2}` : block1;
 }
 
 
