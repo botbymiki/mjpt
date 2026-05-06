@@ -569,11 +569,35 @@ function buildConfirmationMsg({ data, localHour, streak, daysSince, logsToday })
       `${daysSince} days between logs. Hope things are moving better now.`,
       `Back at it after ${daysSince} days. Your gut had a lot to think about apparently.`
     ]));
-  } else if (logsToday >= 2) {
+  } else if (logsToday >= 4) {
+    b2parts.push(pick([
+      `${logsToday + 1} times today. Your gut is really making itself heard.`,
+      `Another one — that is ${logsToday + 1} today. Quite the active gut day.`,
+      `${logsToday + 1} logs in one day. Your gut has been very busy.`,
+      `That is ${logsToday + 1} today. Hope everything is feeling okay.`
+    ]));
+  } else if (logsToday === 3) {
+    b2parts.push(pick([
+      `Fourth time today — your gut is clearly not done talking.`,
+      `That is four today. Your gut is having quite the active day.`,
+      `Four in one day. Everything okay? That is a lot even for an active gut.`,
+      `Your gut has a lot to say today — four logs and counting.`
+    ]));
+  } else if (logsToday === 2) {
+    b2parts.push(pick([
+      `Third time today — your gut is very vocal today.`,
+      `That is three today. Your gut clearly has an agenda.`,
+      `Three in one day. Keep an eye on that — could be something you ate.`,
+      `Going again — third time today. Hope your gut settles down soon.`
+    ]));
+  } else if (logsToday === 1) {
     b2parts.push(pick([
       `Second one today — your gut is clearly having a productive day.`,
       `Going again already. Your gut is very vocal today.`,
-      `Two in one day. Your gut has a lot to say apparently.`
+      `Two in one day. Your gut has a lot to say apparently.`,
+      `Another visit today — your gut means business.`,
+      `Back again. Your gut is not done with today apparently.`,
+      `Second trip today. Some days are just like that.`
     ]));
   }
 
@@ -751,11 +775,55 @@ function buildObservationParagraph({ t, b, isHard, isSoft, isLoose, hasSymp, has
 
 // ── TIME WORD (short, no emoji) ──
 function getTimeWord(hour) {
-  if (hour >= 5  && hour < 11) return pick(["Morning drop", "Early start", "Morning visit", "Starting the day"]);
-  if (hour >= 11 && hour < 14) return pick(["Midday drop", "Lunchtime visit", "Midday check-in", "Post-morning drop"]);
-  if (hour >= 14 && hour < 17) return pick(["Afternoon drop", "Afternoon visit", "Mid-afternoon check-in"]);
-  if (hour >= 17 && hour < 21) return pick(["Evening drop", "End of day visit", "Evening check-in"]);
-  return pick(["Late night drop", "Night visit", "Late one"]);
+  if (hour >= 5 && hour < 11) return pick([
+    "Morning drop",
+    "Early morning visit",
+    "Starting the day right",
+    "Morning gut check done",
+    "First thing in the morning",
+    "Early bird",
+    "Morning business handled",
+    "Bright and early"
+  ]);
+  if (hour >= 11 && hour < 14) return pick([
+    "Midday drop",
+    "Lunchtime visit",
+    "Midday check-in",
+    "Right around lunch",
+    "Noon visit",
+    "Pre-lunch drop",
+    "Post-morning check-in",
+    "Midday business"
+  ]);
+  if (hour >= 14 && hour < 17) return pick([
+    "Afternoon drop",
+    "Afternoon visit",
+    "Mid-afternoon check-in",
+    "Post-lunch drop",
+    "Afternoon gut check",
+    "Afternoon pit stop",
+    "The afternoon edition"
+  ]);
+  if (hour >= 17 && hour < 21) return pick([
+    "Evening drop",
+    "End of day visit",
+    "Evening check-in",
+    "Wrapping up the day",
+    "Evening gut report",
+    "After work drop",
+    "The evening edition",
+    "End of day business"
+  ]);
+  return pick([
+    "Late night drop",
+    "Night visit",
+    "Late one",
+    "Middle of the night",
+    "Late night gut check",
+    "The night shift",
+    "Past bedtime drop",
+    "Night owl visit"
+  ]);
 }
 
 
