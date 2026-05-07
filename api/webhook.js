@@ -91,41 +91,6 @@ async function deleteSession(chatId) {
 }
 
 
-// ── MAIN HANDLER ──
-module.exports = async (req, res) => {
-  // GET test route
-  if (req.method === "GET") {
-    try {
-      await db.collection("config").doc("settings").get();
-      return res.status(200).json({ ok: true, firebase: "connected" });
-    } catch (err) {
-      return res.status(200).json({ ok: false, firebase: "failed", error: err.message });
-    }
-  }
-
-  if (req.method !== "POST") return res.status(200).json({ ok: true });
-
-  try {
-    const update = req.body;
-
-    // Handle callback queries (inline button taps)
-    if (update.callback_query) {
-      await handleCallback(update.callback_query);
-      return res.status(200).json({ ok: true });
-    }
-
-    // Handle messages
-    if (update.message) {
-      await handleMessage(update.message);
-      return res.status(200).json({ ok: true });
-    }
-
-    res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error("WEBHOOK ERROR:", err);
-    res.status(200).json({ ok: true }); // Always return 200 to Telegram
-  }
-};
 
 
 // ── MESSAGE HANDLER ──
@@ -1217,3 +1182,214 @@ async function sendReminderMsg(chatId, text) {
     { text: "Skip",      callback_data: "log:skip:skip"   }
   ]]);
 }
+
+
+// ── GET USER BY CHAT ID ──
+async function getUserByChatId(chatId) {
+  try {
+    const snap = await db.collection("users").get();
+    const doc  = snap.docs.find(d => d.data().chatId === chatId);
+    if (!doc) return null;
+    return { id: doc.id, ...doc.data() };
+  } catch (err) {
+    console.error("getUserByChatId error:", err);
+    return null;
+  }
+}
+
+
+// ── REGISTER USER ──
+async function registerUser(chatId, userId, telegramUsername) {
+  await db.collection("users").doc(userId).set({
+    chatId,
+    telegramUsername: telegramUsername || null,
+    registeredAt: Timestamp.now()
+  }, { merge: true });
+}
+
+
+// ── GET USER PRESET ──
+async function getUserPreset(userId) {
+  try {
+    const snap = await db.collection("config").doc("settings").get();
+    return snap.data()?.[userId]?.preset || { bristolType: 4, color: "brown", volume: "normal", symptoms: ["none"] };
+  } catch (err) {
+    return { bristolType: 4, color: "brown", volume: "normal", symptoms: ["none"] };
+  }
+}
+
+
+// ── /help ──
+async function handleHelp(chatId, user) {
+  await sendMsg(chatId,
+    `*mjpt — commands*\n\n` +
+    `/quick — quick log using your preset\n` +
+    `/log — full guided log\n` +
+    `/history — last 5 logs\n` +
+    `/check — today's summary\n` +
+    `/preset — update quick log preset\n` +
+    `/help — this message`,
+    null, { parse_mode: "Markdown" }
+  );
+}
+
+
+// ── /check ──
+async function handleCheck(chatId, user) {
+  try {
+    const tz   = user.id === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
+    const snap = await db.collection("logs").where("user", "==", user.id).limit(50).get();
+    const now  = new Date();
+    const todayStr = now.toLocaleDateString("en-CA", { timeZone: tz });
+
+    const utcOffset  = now.getTime() - new Date(now.toLocaleString("en-US", { timeZone: tz })).getTime();
+    const startOfDay = new Date(new Date(`${todayStr}T00:00:00`).getTime() + utcOffset);
+    const startSec   = startOfDay.getTime() / 1000;
+
+    const todayLogs = snap.docs
+      .filter(d => (d.data().timestamp?.seconds || 0) >= startSec)
+      .map(d => d.data());
+
+    if (todayLogs.length === 0) {
+      await sendMsg(chatId,
+        `No logs yet today. Want to log now?`, [[
+          { text: "Quick log", callback_data: "log:quick:quick" },
+          { text: "Full log",  callback_data: "log:full:full"   }
+        ]]
+      );
+      return;
+    }
+
+    const lines = todayLogs.map(l => {
+      const b   = BRISTOL[parseInt(l.bristolType)] || BRISTOL[4];
+      const vol = formatVolume(l.volume);
+      const t   = l.timestamp?.toDate().toLocaleTimeString("en-AU", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
+      return `${b.label} · ${vol} · ${t}`;
+    });
+
+    await sendMsg(chatId,
+      `*Today's logs (${todayLogs.length})*\n\n${lines.join("\n")}\n\nLog another?`, [[
+        { text: "Quick log", callback_data: "log:quick:quick" },
+        { text: "Full log",  callback_data: "log:full:full"   }
+      ]], { parse_mode: "Markdown" }
+    );
+  } catch (err) {
+    console.error("handleCheck error:", err);
+    await sendMsg(chatId, "Failed to load today's logs. Try again.");
+  }
+}
+
+
+// ── /history ──
+async function handleHistory(chatId, user) {
+  try {
+    const snap = await db.collection("logs")
+      .where("user", "==", user.id)
+      .limit(20)
+      .get();
+
+    if (snap.empty) {
+      await sendMsg(chatId, "No logs yet. Use /quick or /log to get started!");
+      return;
+    }
+
+    const tz   = user.id === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
+    const docs = snap.docs
+      .map(d => ({ ...d.data() }))
+      .sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0))
+      .slice(0, 5);
+
+    const lines = docs.map(l => {
+      const b    = BRISTOL[parseInt(l.bristolType)] || BRISTOL[4];
+      const date = l.timestamp.toDate().toLocaleString("en-AU", { timeZone: tz, hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" });
+      const syms = l.symptoms?.includes("none") ? "" : ` · ${l.symptoms.join(", ")}`;
+      const vol  = formatVolume(l.volume);
+      return `*${b.label}* · ${vol} · ${l.color?.replace(/_/g, " ") || "brown"}${syms} — _${date}_`;
+    });
+
+    await sendMsg(chatId, `*Last 5 logs:*\n\n${lines.join("\n")}`, null, { parse_mode: "Markdown" });
+  } catch (err) {
+    console.error("History error:", err);
+    await sendMsg(chatId, "Failed to load history. Try again.");
+  }
+}
+
+
+// ── /preset ──
+async function handlePreset(chatId, user) {
+  const preset = await getUserPreset(user.id);
+  const b      = BRISTOL[parseInt(preset.bristolType)] || BRISTOL[4];
+  const vol    = formatVolume(preset.volume || "normal");
+
+  await sendMsg(chatId,
+    `*Your quick log preset*\n\n${b.label} · ${vol} · ${preset.color?.replace(/_/g," ")||"brown"}\n\nUpdate it in the web app under Settings.`,
+    null, { parse_mode: "Markdown" }
+  );
+}
+
+
+// ── PRESET CALLBACK ──
+async function handlePresetCallback(chatId, msgId, user, field, value) {
+  // Preset changes handled via web settings — just confirm
+  await editMsg(chatId, msgId, "Update your preset in the web app under Settings.", null);
+}
+
+
+// ── CONVERSATION (text replies during session) ──
+async function handleConversation(chatId, user, text, session) {
+  if (session.step === "time") {
+    const timeRegex = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+    if (!timeRegex.test(text.trim())) {
+      await sendMsg(chatId, "Please use HH:MM format (e.g. 08:30 or 21:00)");
+      return;
+    }
+    await handleLogCallback(chatId, null, user, "time", text.trim());
+    return;
+  }
+
+  if (session.step === "notes") {
+    session.data.notes = text;
+    await saveLog(chatId, session.data, null);
+    return;
+  }
+
+  // Unrecognised text during session — prompt
+  await sendMsg(chatId, "I didn't catch that. Use the buttons to continue logging, or /log to start over.");
+}
+
+
+// ── MAIN HANDLER ──
+module.exports = async (req, res) => {
+  // GET test route
+  if (req.method === "GET") {
+    try {
+      await db.collection("config").doc("settings").get();
+      return res.status(200).json({ ok: true, firebase: "connected" });
+    } catch (err) {
+      return res.status(200).json({ ok: false, firebase: "failed", error: err.message });
+    }
+  }
+
+  if (req.method !== "POST") return res.status(200).json({ ok: true });
+
+  try {
+    const update = req.body;
+
+    // Handle callback queries (inline button taps)
+    if (update.callback_query) {
+      await handleCallback(update.callback_query);
+      return res.status(200).json({ ok: true });
+    }
+
+    // Handle messages
+    if (update.message) {
+      await handleMessage(update.message);
+      return res.status(200).json({ ok: true });
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error("WEBHOOK ERROR:", err);
+    res.status(200).json({ ok: true }); // Always return 200 to Telegram
+  }
+};
