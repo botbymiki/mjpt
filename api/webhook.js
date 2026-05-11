@@ -495,7 +495,7 @@ async function saveLog(chatId, data, msgId) {
       await sendMsg(chatId, msg, null, { parse_mode: "Markdown" });
     }
 
-    await notifyPartner(data.user, data.bristolType, data.volume, data.symptoms, localHour);
+    await notifyPartner(data.user, data.bristolType, data.volume, data.symptoms, localHour, logsToday);
 
   } catch (err) {
     console.error(err);
@@ -857,7 +857,7 @@ function buildObs({ t, b, isHard, isSoft, isLoose, isCrackle, isBlob,
 
 
 // ── CROSS NOTIFICATION ──
-async function notifyPartner(loggedBy, bristolType, volume, symptoms, localHour) {
+async function notifyPartner(loggedBy, bristolType, volume, symptoms, localHour, logsToday) {
   try {
     const partnerKey = loggedBy === "mike" ? "jenna" : "mike";
     const name       = loggedBy === "mike" ? "Mike" : "Jenna";
@@ -877,6 +877,7 @@ async function notifyPartner(loggedBy, bristolType, volume, symptoms, localHour)
     const isGig      = volume === "gigantic";
     const isHuge     = volume === "huge";
     const isSmall    = volume === "child_size" || volume === "small";
+    const count      = (logsToday || 0) + 1; // +1 because logsToday was counted before saving
 
     // Time word for opener
     let timeWord;
@@ -886,8 +887,17 @@ async function notifyPartner(loggedBy, bristolType, volume, symptoms, localHour)
     else if (localHour >= 17 && localHour < 21) timeWord = "evening";
     else timeWord = "late night";
 
-    // ── OPENER: always same clean format ──
-    const opener = `${name} just logged — ${b.label}, ${vol}, ${timeWord}.`;
+    // ── OPENER: count-aware ──
+    let opener;
+    if (count === 1) {
+      opener = `${name} just logged — ${b.label}, ${vol}, ${timeWord}.`;
+    } else if (count === 2) {
+      opener = `${name} just logged again — ${b.label}, ${vol}. Second one today.`;
+    } else if (count === 3) {
+      opener = `${name} logged a third time today — ${b.label}, ${vol}.`;
+    } else {
+      opener = `${name} logged again — ${b.label}, ${vol}. That is ${count} today.`;
+    }
 
     // ── BODY: one flowing paragraph ──
     let body;
