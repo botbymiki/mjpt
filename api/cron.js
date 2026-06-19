@@ -29,20 +29,12 @@ const BRISTOL = {
   5: "Blob",   6: "Mush", 7: "Liquid"
 };
 
-const DEFAULT_REMINDERS = {
-  mike:  [
-    "Hey Mike! No logs yet today. How's the gut doing?",
-    "Mike — daily check-in. Nothing logged yet today!",
-    "Your gut data is missing for today, Mike. Log now?",
-    "Mike, how's the gut? No logs recorded yet today 👀"
-  ],
-  jenna: [
-    "Hey Jenna! No logs yet today. How's the gut going?",
-    "Jenna — daily check-in. Nothing logged yet today!",
-    "Your gut data is missing for today, Jenna. Log now?",
-    "Jenna, how's the gut? No logs recorded yet today 👀"
-  ]
-};
+const REMINDER_TEMPLATES = [
+  "Hey {name}! No logs yet today. How's the gut doing?",
+  "{name} — daily check-in. Nothing logged yet today!",
+  "Your gut data is missing for today, {name}. Log now?",
+  "{name}, how's the gut? No logs recorded yet today 👀"
+];
 
 const { getTodayStr, formatLocalDate } = require("./lib/time");
 
@@ -143,7 +135,7 @@ async function processUser(userId, config, force) {
       }
 
       const customMsgs = settings.reminderMessages;
-      const pool       = (customMsgs?.length > 0) ? customMsgs : DEFAULT_REMINDERS[userId];
+      const pool       = (customMsgs?.length > 0) ? customMsgs : REMINDER_TEMPLATES.map(t => t.replace(/\{name\}/g, config.name));
       const msg        = pool[Math.floor(Math.random() * pool.length)];
       console.log(`[${userId}] Sending reminder to chatId: ${chatId}, msg: ${msg.slice(0,50)}`);
       const result = await sendReminderMsg(chatId, msg);
