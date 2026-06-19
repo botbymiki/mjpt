@@ -45,6 +45,8 @@ function formatVolume(v) {
   return VOLUME_LABELS[v] || "Normal";
 }
 
+const { getTodayStr, formatLocalDate } = require("./lib/time");
+
 // ── CONVERSATION STATE (Firestore-backed — survives serverless cold starts) ──
 const sessions = {}; // local cache within same invocation only
 
@@ -1082,18 +1084,19 @@ async function getStreak(userId, tz) {
   try {
     const snap = await db.collection("logs")
       .where("user", "==", userId)
+      .orderBy("timestamp", "desc")
       .limit(100)
       .get();
     if (snap.empty) return 0;
     const now = new Date();
     const logDays = new Set(snap.docs.map(d => {
       const ts = d.data().timestamp?.toDate();
-      return ts ? ts.toLocaleDateString("en-CA", { timeZone: tz }) : null;
+      return ts ? formatLocalDate(ts, tz) : null;
     }).filter(Boolean));
     let streak = 0;
     const check = new Date(now);
     while (true) {
-      const dateStr = check.toLocaleDateString("en-CA", { timeZone: tz });
+      const dateStr = formatLocalDate(check, tz);
       if (!logDays.has(dateStr)) break;
       streak++;
       check.setDate(check.getDate() - 1);
@@ -1108,17 +1111,18 @@ async function getDaysSinceLastLog(userId, tz) {
   try {
     const snap = await db.collection("logs")
       .where("user", "==", userId)
+      .orderBy("timestamp", "desc")
       .limit(50)
       .get();
     if (snap.empty) return 999;
     const now = new Date();
-    const todayStr = now.toLocaleDateString("en-CA", { timeZone: tz });
+    const todayStr = getTodayStr(tz);
     const sorted = snap.docs
       .map(d => d.data().timestamp?.toDate())
       .filter(Boolean)
       .sort((a, b) => b - a);
     if (!sorted.length) return 999;
-    const lastStr = sorted[0].toLocaleDateString("en-CA", { timeZone: tz });
+    const lastStr = formatLocalDate(sorted[0], tz);
     if (lastStr === todayStr) return 0;
     const diffMs = now - sorted[0];
     return Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -1129,18 +1133,19 @@ async function getDaysSinceLastLog(userId, tz) {
 
 async function countLoggedToday(userId, tz) {
   try {
-    const now      = new Date();
-    const localStr = now.toLocaleDateString("en-CA", { timeZone: tz });
+    const todayStr = getTodayStr(tz);
     const snap     = await db.collection("logs")
       .where("user", "==", userId)
-      .limit(20)
+      .orderBy("timestamp", "desc")
+      .limit(50)
       .get();
-    const utcOffset   = now.getTime() - new Date(now.toLocaleString("en-US", { timeZone: tz })).getTime();
-    const startOfDay  = new Date(`${localStr}T00:00:00`);
-    const startUTC    = new Date(startOfDay.getTime() + utcOffset);
-    const startSec    = startUTC.getTime() / 1000;
-    return snap.docs.filter(d => (d.data().timestamp?.seconds || 0) >= startSec).length;
+    return snap.docs.filter(d => {
+      const ts = d.data().timestamp?.toDate();
+      if (!ts) return false;
+      return formatLocalDate(ts, tz) === todayStr;
+    }).length;
   } catch (err) {
+    console.error("countLoggedToday error:", err);
     return 0;
   }
 }
@@ -1247,17 +1252,20 @@ async function handleHelp(chatId, user) {
 // ── /check ──
 async function handleCheck(chatId, user) {
   try {
-    const tz   = user.id === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
-    const snap = await db.collection("logs").where("user", "==", user.id).limit(50).get();
-    const now  = new Date();
-    const todayStr = now.toLocaleDateString("en-CA", { timeZone: tz });
-
-    const utcOffset  = now.getTime() - new Date(now.toLocaleString("en-US", { timeZone: tz })).getTime();
-    const startOfDay = new Date(new Date(`${todayStr}T00:00:00`).getTime() + utcOffset);
-    const startSec   = startOfDay.getTime() / 1000;
+    const tz = user.id === "mike" ? "Australia/Melbourne" : "Asia/Makassar";
+    const todayStr = getTodayStr(tz);
+    const snap = await db.collection("logs")
+      .where("user", "==", user.id)
+      .orderBy("timestamp", "desc")
+      .limit(50)
+      .get();
 
     const todayLogs = snap.docs
-      .filter(d => (d.data().timestamp?.seconds || 0) >= startSec)
+      .filter(d => {
+        const ts = d.data().timestamp?.toDate();
+        if (!ts) return false;
+        return formatLocalDate(ts, tz) === todayStr;
+      })
       .map(d => d.data());
 
     if (todayLogs.length === 0) {
@@ -1295,7 +1303,8 @@ async function handleHistory(chatId, user) {
   try {
     const snap = await db.collection("logs")
       .where("user", "==", user.id)
-      .limit(20)
+      .orderBy("timestamp", "desc")
+      .limit(50)
       .get();
 
     if (snap.empty) {

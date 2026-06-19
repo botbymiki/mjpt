@@ -44,6 +44,8 @@ const DEFAULT_REMINDERS = {
   ]
 };
 
+const { getTodayStr, formatLocalDate } = require("./lib/time");
+
 
 // ── HANDLER ──
 module.exports = async (req, res) => {
@@ -176,6 +178,7 @@ async function sendWeeklyRecap(userId, config) {
     // Fetch this week's logs
     const snap = await db.collection("logs")
       .where("user", "==", userId)
+      .orderBy("timestamp", "desc")
       .limit(200)
       .get();
 
@@ -224,7 +227,7 @@ async function sendWeeklyRecap(userId, config) {
     // Days logged
     const uniqueDays  = new Set(thisWeek.map(l => {
       const d = l.timestamp?.toDate();
-      return d ? d.toLocaleDateString("en-CA", { timeZone: config.tz }) : null;
+      return d ? formatLocalDate(d, config.tz) : null;
     }).filter(Boolean)).size;
 
     // Gut score (simple)
@@ -319,6 +322,7 @@ async function checkHealthAlerts(userId, config, now) {
     const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const snap = await db.collection("logs")
       .where("user", "==", userId)
+      .orderBy("timestamp", "desc")
       .limit(100)
       .get();
 
@@ -339,10 +343,10 @@ async function checkHealthAlerts(userId, config, now) {
       .limit(5)
       .get();
 
-    const todayStr = now.toLocaleDateString("en-CA", { timeZone: config.tz });
+    const todayStr = getTodayStr(config.tz);
     const alreadySentToday = alertTodaySnap.docs.some(d => {
-      const sentDate = d.data().sentAt?.toDate()?.toLocaleDateString("en-CA", { timeZone: config.tz });
-      return sentDate === todayStr;
+      const sentDate = d.data().sentAt?.toDate();
+      return sentDate ? formatLocalDate(sentDate, config.tz) === todayStr : false;
     });
     if (alreadySentToday) return false;
 
@@ -394,13 +398,13 @@ async function checkHealthAlerts(userId, config, now) {
 function calcStreak(logs, tz, now) {
   const logDays = new Set(logs.map(l => {
     const d = l.timestamp?.toDate();
-    return d ? d.toLocaleDateString("en-CA", { timeZone: tz }) : null;
+    return d ? formatLocalDate(d, tz) : null;
   }).filter(Boolean));
 
   let streak = 0;
   const check = new Date(now);
   while (true) {
-    const dateStr = check.toLocaleDateString("en-CA", { timeZone: tz });
+    const dateStr = formatLocalDate(check, tz);
     if (!logDays.has(dateStr)) break;
     streak++;
     check.setDate(check.getDate() - 1);
@@ -411,22 +415,18 @@ function calcStreak(logs, tz, now) {
 
 // ── HAS LOGGED TODAY ──
 async function hasLoggedToday(userId, tz) {
-  const now       = new Date();
-  const localStr  = now.toLocaleDateString("en-CA", { timeZone: tz });
-  const startOfDayLocal = new Date(`${localStr}T00:00:00`);
-  const utcOffset = now.getTime() - new Date(now.toLocaleString("en-US", { timeZone: tz })).getTime();
-  const startOfDayUTC   = new Date(startOfDayLocal.getTime() + utcOffset);
+  const todayStr = getTodayStr(tz);
 
   const snap = await db.collection("logs")
     .where("user", "==", userId)
+    .orderBy("timestamp", "desc")
     .limit(50)
     .get();
 
-  if (snap.empty) return false;
-  const startSeconds = startOfDayUTC.getTime() / 1000;
   return snap.docs.some(doc => {
-    const ts = doc.data().timestamp;
-    return ts && ts.seconds >= startSeconds;
+    const ts = doc.data().timestamp?.toDate();
+    if (!ts) return false;
+    return formatLocalDate(ts, tz) === todayStr;
   });
 }
 
