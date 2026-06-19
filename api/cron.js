@@ -332,6 +332,7 @@ async function checkHealthAlerts(userId, config, now) {
     const alertTodaySnap = await db.collection("reminder_logs")
       .where("user", "==", userId)
       .where("type", "==", "health_alert")
+      .orderBy("timestamp", "desc")
       .limit(5)
       .get();
 
