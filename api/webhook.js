@@ -503,30 +503,12 @@ async function saveLog(chatId, data, msgId, replyToMsgId = null) {
 
 // ── BUILD CONFIRMATION MESSAGE ──
 function buildConfirmationMsg({ data, localHour, streak, daysSince, logsToday }) {
-  const b          = BRISTOL[data.bristolType] || BRISTOL[4];
-  const vol        = formatVolume(data.volume);
-  const color      = data.color.replace(/_/g, " ");
-  const t          = data.bristolType;
-  const syms       = data.symptoms || ["none"];
-  const hasCramps  = syms.includes("cramps");
-  const hasBloat   = syms.includes("bloating");
-  const hasUrgency = syms.includes("urgency");
-  const hasBlood   = syms.includes("blood");
-  const hasSymp    = !syms.includes("none") && syms.length > 0;
-  const isHard     = t <= 2;
-  const isSoft     = t === 4;
-  const isLoose    = t >= 6;
-  const isCrackle  = t === 3;
-  const isBlob     = t === 5;
-  const isGig      = data.volume === "gigantic";
-  const isHuge     = data.volume === "huge";
-  const isSmall    = data.volume === "child_size" || data.volume === "small";
-
+  const analysis = buildAnalysis(data);
+  const { b, vol, color } = analysis;
   const timeWord = getTimeWord(localHour);
 
   // ── BLOCK 1: opener line + flowing observation ──
-  const obs = buildObs({ t, b, isHard, isSoft, isLoose, isCrackle, isBlob,
-    hasSymp, hasCramps, hasBloat, hasUrgency, hasBlood, isGig, isHuge, isSmall, vol, color, data });
+  const obs = buildObs(analysis);
 
   const block1 = obs
     ? `${timeWord} — ${b.label}, ${vol}, ${color}.\n\n${obs}`
@@ -629,227 +611,462 @@ function buildConfirmationMsg({ data, localHour, streak, daysSince, logsToday })
 }
 
 
-// ── OBSERVATION PARAGRAPH ──
-function buildObs({ t, b, isHard, isSoft, isLoose, isCrackle, isBlob,
-  hasSymp, hasCramps, hasBloat, hasUrgency, hasBlood, isGig, isHuge, isSmall, vol, color, data }) {
+// ── SHARED ANALYSIS BUILDER ──
+// Computes all Bristol/symptom/volume flags once. Used by both
+// buildConfirmationMsg and notifyPartner.
+function buildAnalysis(data) {
+  const t         = parseInt(data.bristolType) || 4;
+  const b         = BRISTOL[t] || BRISTOL[4];
+  const vol       = formatVolume(data.volume);
+  const color     = (data.color || "brown").replace(/_/g, " ");
+  const syms      = data.symptoms || ["none"];
+  const isHard    = t <= 2;
+  const isSoft    = t === 4;
+  const isLoose   = t >= 6;
+  const isCrackle = t === 3;
+  const isBlob    = t === 5;
+  const isGig     = data.volume === "gigantic";
+  const isHuge    = data.volume === "huge";
+  const isSmall   = data.volume === "child_size" || data.volume === "small";
 
-  // Blood — always serious, always standalone
-  if (hasBlood) {
-    return pick([
+  return {
+    t, b, vol, color, syms, data,
+    isHard, isSoft, isLoose, isCrackle, isBlob,
+    isGig, isHuge, isSmall,
+    hasCramps:  syms.includes("cramps"),
+    hasBloat:   syms.includes("bloating"),
+    hasUrgency: syms.includes("urgency"),
+    hasBlood:   syms.includes("blood"),
+    hasSymp:    !syms.includes("none") && syms.length > 0,
+  };
+}
+
+const VOICE = { SELF: "self", PARTNER: "partner" };
+
+// ── SHARED OBSERVATION CORE ──
+// Single condition tree used by both self-confirmation and partner cross-notify.
+// Every branch provides variants for both voices — the helper p() picks the
+// appropriate set. Branches that only one voice has fall through (return
+// undefined) for the other voice to the next matching condition.
+function buildObsCore(analysis, voice) {
+  const { t, b, vol, color, syms, data,
+    isHard, isSoft, isLoose, isCrackle, isBlob,
+    isGig, isHuge, isSmall,
+    hasCramps, hasBloat, hasUrgency, hasBlood, hasSymp,
+  } = analysis;
+  const isPartner = voice === VOICE.PARTNER;
+  const name = data?.user === "mike" ? "Mike" : "Jenna";
+
+  // Helper: pick from variants for current voice.
+  // If voice has no variants for this branch, return undefined (fall through).
+  const p = (selfArr, partnerArr) => {
+    const arr = isPartner ? partnerArr : selfArr;
+    if (!arr || arr.length === 0) return undefined;
+    return pick(arr);
+  };
+
+  let r;
+
+  // ── Blood — always serious, always standalone ──
+  r = p(
+    [
       "You flagged blood. If that keeps happening, please see a doctor — do not put it off.",
       "Blood was logged. Could be nothing, could be something. See a doctor if it shows up again.",
-      "You noted blood. Take that seriously — worth getting checked if it repeats."
-    ]);
-  }
+      "You noted blood. Take that seriously — worth getting checked if it repeats.",
+    ],
+    [
+      "Came out with blood flagged. Make sure they know to take that seriously if it keeps happening.",
+      "They logged blood today. Could be nothing but worth keeping an eye on — check in on them.",
+      "Blood was flagged in their log. Please make sure they do not ignore that if it shows up again.",
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Hard + cramps
-  if (isHard && hasCramps) {
-    return pick([
+  // ── Hard + cramps ──
+  r = p(
+    [
       `Came out hard with cramps on top — your gut was really struggling with that one. Drink a lot of water today and try some warm food tonight, it should ease things up.`,
       `Hard and crampy — that is a rough combination. Your gut needs more hydration and probably some gentle movement. Take it easy today.`,
       `Came out as a ${b.label} and it brought cramps along. That means your gut has been working too hard. More water, less processed food, and a short walk if you can manage it.`,
-      `That one came out hard and painful. Drink water now, eat something warm later, and try not to force anything next time — let it come naturally.`
-    ]);
-  }
+      `That one came out hard and painful. Drink water now, eat something warm later, and try not to force anything next time — let it come naturally.`,
+    ],
+    [
+      `Came out hard with cramps on top — that is a rough combination. Maybe check in on them and remind them to drink more water today.`,
+      `Hard and crampy, which sounds uncomfortable. They could probably use some water and a warm compress. Worth a quick check-in.`,
+      `Came out as a ${b.label} with cramps — their gut has been working hard. A nudge to hydrate and take it easy would go a long way.`,
+      `Hard stool and cramps together is no fun. Check in on them if you get a chance — they might appreciate it.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Hard + bloating
-  if (isHard && hasBloat) {
-    return pick([
+  // ── Hard + bloating ──
+  r = p(
+    [
       `Came out hard with some bloating — double trouble for your gut today. More water and skip the dairy if you can.`,
       `Hard stool and bloating together usually means dehydration and something irritating your gut. Water and lighter food should help.`,
-      `Came out as a ${b.label} and you are feeling bloated too. Your gut wants more fluids and probably less of whatever you had yesterday.`
-    ]);
-  }
+      `Came out as a ${b.label} and you are feeling bloated too. Your gut wants more fluids and probably less of whatever you had yesterday.`,
+    ],
+    [
+      `Came out hard with some bloating — their gut is not totally happy today. A nudge to drink more water and skip the dairy might help.`,
+      `Hard and bloated — double trouble. Remind them to hydrate and keep food light today.`,
+      `Came out as a ${b.label} with bloating on top. Their gut needs more fluids and probably lighter food today.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Hard only
-  if (isHard) {
-    const sizeNote = isGig || isHuge
+  // ── Hard only ──
+  r = (() => {
+    const selfSize = isGig || isHuge
       ? " Impressive effort given how hard it was though."
       : isSmall ? " Small volume too — your gut did not have much to work with." : "";
-    return pick([
-      `Came out hard — classic sign your gut needs more water.${sizeNote} Drink a full glass now and try to get more fibre in today before the next one gets worse.`,
-      `Came out as a ${b.label} which means your gut is moving too slowly. Water, fruit, and a short walk are your best tools right now.${sizeNote}`,
-      `Hard one today.${sizeNote} Your gut is telling you it needs more hydration. Drink water, eat something fibrous, and try to move around a bit.`,
-      `That came out harder than it should.${sizeNote} More water today — your gut was clearly not happy with how things have been going.`
-    ]);
-  }
+    const partnerSize = isGig || isHuge
+      ? " Big volume too given how hard it was — that took some effort." : "";
+    return p(
+      [
+        `Came out hard — classic sign your gut needs more water.${selfSize} Drink a full glass now and try to get more fibre in today before the next one gets worse.`,
+        `Came out as a ${b.label} which means your gut is moving too slowly. Water, fruit, and a short walk are your best tools right now.${selfSize}`,
+        `Hard one today.${selfSize} Your gut is telling you it needs more hydration. Drink water, eat something fibrous, and try to move around a bit.`,
+        `That came out harder than it should.${selfSize} More water today — your gut was clearly not happy with how things have been going.`,
+      ],
+      [
+        `Came out hard — their gut is asking for more water.${partnerSize} Worth a gentle nudge to hydrate today.`,
+        `Came out as a ${b.label} which means things are moving a bit slowly over there.${partnerSize} Remind them to drink more water if you see them.`,
+        `Hard one today.${partnerSize} Classic sign of dehydration — they could use some water and fibre. Maybe mention it.`,
+        `Their gut came out hard which is not ideal.${partnerSize} A nudge to drink more water today would probably help.`,
+      ]
+    );
+  })();
+  if (r !== undefined) return r;
 
-  // Loose + cramps + bloating
-  if (isLoose && hasCramps && hasBloat) {
-    return pick([
+  // ── Loose + cramps + bloating ──
+  r = p(
+    [
       `Came out loose with cramps and bloating — your gut is really not happy right now. Keep food plain and light today, drink plenty of fluids, and rest if you can.`,
       `Loose, crampy, and bloated all at once — that is a rough gut day. Your body needs rest, fluids, and nothing heavy. Take it easy.`,
-      `That is a lot going on at once — ${b.label} with cramps and bloating. Something clearly irritated your gut. Bland food, lots of water, and let it settle.`
-    ]);
-  }
+      `That is a lot going on at once — ${b.label} with cramps and bloating. Something clearly irritated your gut. Bland food, lots of water, and let it settle.`,
+    ],
+    [
+      `Came out loose with cramps and bloating — their gut is having a really rough time. Worth checking if they are okay.`,
+      `Loose, crampy, and bloated all at once. Their gut is not happy. Check in on them — they might need some support today.`,
+      `That is a lot going on at once. Came out loose with cramps and bloating — something clearly upset their gut. Hope they are okay.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Loose + cramps
-  if (isLoose && hasCramps) {
-    return pick([
+  // ── Loose + cramps ──
+  r = p(
+    [
       `Came out loose and with cramps — your gut is having a hard time right now. Rest up, drink fluids, and keep food plain today.`,
       `${b.label} with cramps is uncomfortable. Something is irritating your gut — light food, plenty of water, and take it easy.`,
-      `Came out loose and painful today. Your gut needs a break — avoid heavy food and dairy and see if it settles down.`
-    ]);
-  }
+      `Came out loose and painful today. Your gut needs a break — avoid heavy food and dairy and see if it settles down.`,
+    ],
+    [
+      `Came out loose with cramps — sounds uncomfortable. Worth checking in on them to see how they are doing.`,
+      `Loose and crampy today. Their gut is not happy — a check-in might go a long way right now.`,
+      `Came out loose and painful. Their gut is having a hard time today — hope they are resting up.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Loose + bloating
-  if (isLoose && hasBloat) {
-    return pick([
+  // ── Loose + bloating ──
+  r = p(
+    [
       `Came out loose and you are feeling bloated on top of it. Your gut is unsettled — light food and lots of fluids should help.`,
       `${b.label} with bloating — something is clearly not sitting right. Try cutting dairy for today and see if it helps.`,
-      `Loose and bloated is a sign your gut is reacting to something. Keep an eye on what you eat and drink plenty of water.`
-    ]);
-  }
+      `Loose and bloated is a sign your gut is reacting to something. Keep an eye on what you eat and drink plenty of water.`,
+    ],
+    [
+      `Came out loose and a bit bloated — something is not sitting right. Check in on them if you can.`,
+      `Loose with bloating — their gut is unsettled today. A check-in and a reminder to drink water would help.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Loose only
-  if (isLoose) {
-    return pick([
+  // ── Loose only ──
+  r = p(
+    [
       `Came out loose today — could be stress, something you ate, or just your gut having a moment. Stay hydrated and keep food plain for now.`,
       `Running ${b.label.toLowerCase()} which means your gut is moving faster than it should. Drink plenty of fluids, rest if you can, and avoid heavy food.`,
       `Came out loose. Your gut needs some recovery time today — electrolytes, bland food, and take it easy. Should settle down.`,
-      `${b.label} today. Something triggered your gut — could be diet, stress, or just a bad day. Rest and fluids are the move right now.`
-    ]);
-  }
+      `${b.label} today. Something triggered your gut — could be diet, stress, or just a bad day. Rest and fluids are the move right now.`,
+    ],
+    [
+      `Came out loose today — could be stress or something they ate. Hope they are staying hydrated.`,
+      `Running ${b.label.toLowerCase()} over there. Their gut needs some recovery time — fluids and rest.`,
+      `Came out loose. Nothing too serious but their gut is moving fast. Hope they are taking it easy today.`,
+      `${b.label} today for ${name}. Remind them to drink plenty of fluids and keep food plain for now.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Ideal + cramps
-  if (isSoft && hasCramps) {
-    return pick([
+  // ── Ideal + cramps ──
+  r = p(
+    [
       `Came out clean and smooth which is great, but the cramps are worth paying attention to. A warm compress or peppermint tea might help.`,
       `Good consistency — came out as a clean ${b.label}. The cramping is a bit odd given how well it came out. Could be stress. See how the day goes.`,
-      `Came out perfectly but you had cramps with it. That sometimes happens with stress or hormones. Worth noting if it keeps up.`
-    ]);
-  }
+      `Came out perfectly but you had cramps with it. That sometimes happens with stress or hormones. Worth noting if it keeps up.`,
+    ],
+    [
+      `Came out clean and smooth which is great, but they had cramps with it. Worth asking how they are feeling.`,
+      `Good consistency — came out as a clean ${b.label} — but cramps tagged along. Could be stress. Worth a check-in.`,
+      `Came out perfectly but flagged cramps. Something is still bothering their gut even if the stool looks fine.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Ideal + bloating
-  if (isSoft && hasBloat) {
-    return pick([
+  // ── Ideal + bloating ──
+  r = p(
+    [
       `Came out clean and smooth — the consistency is perfect. The bloating is probably something you ate. Try skipping dairy today and see if it eases.`,
       `Good drop, came out as a proper ${b.label}. The bloating on top of it might be from something specific — worth thinking about what you had earlier.`,
-      `Clean ${b.label} which is exactly right, but feeling bloated afterward. Ginger tea or skipping processed food today might help with that.`
-    ]);
-  }
+      `Clean ${b.label} which is exactly right, but feeling bloated afterward. Ginger tea or skipping processed food today might help with that.`,
+    ],
+    [
+      `Came out clean and smooth — consistency is perfect. The bloating is probably something they ate. Check in if you get a chance.`,
+      `Good drop, came out as a proper ${b.label}, but they are feeling bloated. Worth asking what they had today.`,
+      `Clean ${b.label} which is great, but they are bloated. Maybe ask if they had anything unusual to eat.`,
+    ]
+  );
+  if (r !== undefined) return r;
 
-  // Ideal + urgency
-  if (isSoft && hasUrgency) {
-    return pick([
+  // ── Ideal + urgency (self only) ──
+  r = p(
+    [
       `Came out clean but with urgency — your gut had its own timeline today. Nothing to worry about as long as it does not keep happening.`,
-      `Good consistency, came out as a proper ${b.label}. The urgency just means your gut was in a rush — happens sometimes.`
-    ]);
-  }
+      `Good consistency, came out as a proper ${b.label}. The urgency just means your gut was in a rush — happens sometimes.`,
+    ],
+    [] // partner has no dedicated urgency variant; falls through to soft+hasSymp or soft only
+  );
+  if (r !== undefined) return r;
 
-  // Ideal only — no symptoms
-  if (isSoft) {
-    if (isGig) {
-      return pick([
+  // ── Ideal + hasSymp (partner only — catches symptoms not already handled) ──
+  r = p(
+    [], // self handles this via the individual branches above
+    [
+      `Came out clean but flagged some symptoms. Everything looks fine consistency-wise — the symptoms are the thing to watch.`,
+      `Good drop but they had ${syms.filter(s => s !== "none").join(" and ")} with it. Worth checking in.`,
+    ]
+  );
+  if (r !== undefined) return r;
+
+  // ── Ideal only — no symptoms ──
+  r = (() => {
+    if (isSoft) {
+      const selfGig = [
         `Came out perfectly smooth — and that was a big one. Huge volume, clean ${b.label}. Your gut is genuinely thriving right now.`,
         `That was a lot and it came out perfectly clean. Huge volume ${b.label} is about as good as it gets. Your gut is very happy today.`,
-        `Came out as a clean ${b.label} and honestly that volume is impressive. Your gut had a lot stored up and handled it perfectly.`
-      ]);
-    }
-    if (isHuge) {
-      return pick([
+        `Came out as a clean ${b.label} and honestly that volume is impressive. Your gut had a lot stored up and handled it perfectly.`,
+      ];
+      const selfHuge = [
         `Came out clean and smooth — big volume too. Your gut clearly had a lot to get through and handled it really well.`,
         `Clean ${b.label} with a good amount of volume. Your gut is in great shape right now.`,
-        `Came out perfectly. ${b.label} is the gold standard and the volume is solid too. Nothing to complain about here.`
-      ]);
-    }
-    if (isSmall) {
-      return pick([
+        `Came out perfectly. ${b.label} is the gold standard and the volume is solid too. Nothing to complain about here.`,
+      ];
+      const selfSmall = [
         `Came out clean — small volume today but the consistency is perfect. Quality over quantity.`,
         `Small but came out as a clean ${b.label}. Your gut is doing its job properly.`,
-        `Came out smooth and clean. Small one today but that is fine — your gut checked in properly.`
-      ]);
-    }
-    return pick([
-      `Came out clean and smooth — that is exactly how it should be. Your gut is happy today.`,
-      `Came out perfectly. ${b.label} is the gold standard and you hit it. Nothing to change.`,
-      `Clean ${b.label}. Smooth, easy, no complaints at all. Your gut is in a really good place right now.`,
-      `Came out exactly right today. ${b.label}, no symptoms, clean all the way through. Whatever you have been doing, keep doing it.`,
-      `Perfect drop. Came out clean and smooth. Your gut has nothing to complain about today.`,
-      `Came out as a proper ${b.label} — smooth, clean, easy. Days like this mean your gut is genuinely happy.`
-    ]);
-  }
+        `Came out smooth and clean. Small one today but that is fine — your gut checked in properly.`,
+      ];
+      const selfNormal = [
+        `Came out clean and smooth — that is exactly how it should be. Your gut is happy today.`,
+        `Came out perfectly. ${b.label} is the gold standard and you hit it. Nothing to change.`,
+        `Clean ${b.label}. Smooth, easy, no complaints at all. Your gut is in a really good place right now.`,
+        `Came out exactly right today. ${b.label}, no symptoms, clean all the way through. Whatever you have been doing, keep doing it.`,
+        `Perfect drop. Came out clean and smooth. Your gut has nothing to complain about today.`,
+        `Came out as a proper ${b.label} — smooth, clean, easy. Days like this mean your gut is genuinely happy.`,
+      ];
 
-  // Crackle (T3)
-  if (isCrackle) {
-    if (hasCramps) {
-      return pick([
-        `Came out a little firm with some cramps — your gut is not totally relaxed today. More water should help.`,
-        `Came out as a ${b.label} with cramps. A bit more hydration and something warm should ease it up.`
-      ]);
-    }
-    if (hasBloat) {
-      return pick([
-        `Came out a little firm and you are feeling bloated. Your gut wants more water and probably less dairy today.`,
-        `${b.label} with bloating — close to perfect but not quite there. Drink more today and it should sort itself out.`
-      ]);
-    }
-    return pick([
-      `Came out a little firm today — nothing to worry about but one more glass of water and you would have hit that Soft. Close.`,
-      `Came out as a ${b.label} — solid result, just a touch on the firm side. A bit more hydration and you will nail it next time.`,
-      `Almost perfect today. Came out slightly firm but you are in good shape. Just drink a little more water.`,
-      `${b.label} — not quite the gold standard but close. Your gut is doing fine, just needs a bit more fluid.`
-    ]);
-  }
+      const partnerGig = [
+        `Came out perfectly smooth — and that was a huge one. Their gut is clearly very happy today.`,
+        `Clean ${b.label} and massive volume. Their gut is absolutely thriving right now.`,
+        `That was a big clean one. Everything came out perfectly over there.`,
+      ];
+      const partnerHuge = [
+        `Came out clean and smooth with good volume. Their gut is in really good shape today.`,
+        `Clean ${b.label} with solid volume. Everything is going well over there.`,
+        `Came out perfectly. Their gut is happy and healthy today.`,
+      ];
+      const partnerSmall = [
+        `Came out clean — small volume but the consistency is perfect. All good over there.`,
+        `Small but came out as a clean ${b.label}. Their gut is doing its job properly.`,
+        `Came out fine. Small one today but everything looks healthy.`,
+      ];
+      const partnerNormal = [
+        `Came out clean and smooth — their gut is happy today. Nothing to worry about.`,
+        `Came out perfectly. ${b.label}, smooth, no complaints at all from their gut today.`,
+        `Clean ${b.label}. Everything is looking good over there today.`,
+        `Came out exactly right. Their gut is in a good place today.`,
+        `Perfect drop on their end. Smooth, clean, no issues.`,
+        `All good over there — came out as a clean ${b.label} with nothing to report.`,
+      ];
 
-  // Blob (T5)
-  if (isBlob) {
-    if (hasCramps || hasBloat) {
-      return pick([
-        `Came out a little mushy and with ${hasCramps && hasBloat ? "cramps and bloating" : hasCramps ? "cramps" : "bloating"}. Your gut is a bit unsettled today — keep an eye on what you eat.`,
-        `Came out soft and mushy with some discomfort. Something is not sitting right. Lighter food and more water today.`
-      ]);
+      if (isGig)  return pick(isPartner ? partnerGig : selfGig);
+      if (isHuge) return pick(isPartner ? partnerHuge : selfHuge);
+      if (isSmall) return pick(isPartner ? partnerSmall : selfSmall);
+      return pick(isPartner ? partnerNormal : selfNormal);
     }
-    return pick([
-      `Came out a little mushy today — slightly softer than ideal but you are in the safe zone. Keep an eye on what you ate.`,
-      `Came out as a ${b.label} — a touch softer than perfect but nothing to worry about. Watch the dairy and processed food today.`,
-      `Came out soft and mushy which is fine, just not quite ideal. Your gut is a little unsettled but managing.`,
-      `Slightly mushier than you want. Not alarming but something might not have agreed with you today.`
-    ]);
-  }
+    return undefined;
+  })();
+  if (r !== undefined) return r;
 
-  // Any symptoms with no specific bristol match
-  if (hasSymp) {
-    if (hasCramps && hasBloat) {
-      return `Came out with cramps and bloating — your gut is clearly not happy right now. Take it easy, eat light, and drink plenty of water today.`;
-    }
-    if (hasCramps) {
-      return pick([
-        `Came out with cramps. A warm drink and some rest should help settle that down.`,
-        `You had cramps with that one. Could be stress or something you ate — take it easy and drink plenty of water.`
-      ]);
-    }
-    if (hasBloat) {
-      return pick([
-        `Came out with some bloating. Try skipping dairy today and see if that helps.`,
-        `Feeling bloated after that one. Could be something you ate — ginger tea or skipping processed food might help.`
-      ]);
-    }
-    if (hasUrgency) {
-      return pick([
-        `Came out with urgency — your gut had its own schedule today. Nothing to worry about unless it keeps happening.`,
-        `Your gut decided the timing on that one. Urgency is usually fine but worth noting if it becomes a pattern.`
-      ]);
-    }
-  }
+  // ── Crackle (T3) ──
+  r = (() => {
+    if (isCrackle) {
+      // Self has sub-branches (cramps, bloat, plain); partner has plain only
 
-  // Volume only — no symptoms, no notable bristol
-  if (isGig) {
-    return pick([
+      // Crackle + cramps (self only)
+      if (hasCramps) {
+        const r2 = p(
+          [
+            `Came out a little firm with some cramps — your gut is not totally relaxed today. More water should help.`,
+            `Came out as a ${b.label} with cramps. A bit more hydration and something warm should ease it up.`,
+          ],
+          [] // partner falls through
+        );
+        if (r2 !== undefined) return r2;
+      }
+
+      // Crackle + bloating (self only)
+      if (hasBloat) {
+        const r2 = p(
+          [
+            `Came out a little firm and you are feeling bloated. Your gut wants more water and probably less dairy today.`,
+            `${b.label} with bloating — close to perfect but not quite there. Drink more today and it should sort itself out.`,
+          ],
+          [] // partner falls through
+        );
+        if (r2 !== undefined) return r2;
+      }
+
+      // Crackle plain (both)
+      return p(
+        [
+          `Came out a little firm today — nothing to worry about but one more glass of water and you would have hit that Soft. Close.`,
+          `Came out as a ${b.label} — solid result, just a touch on the firm side. A bit more hydration and you will nail it next time.`,
+          `Almost perfect today. Came out slightly firm but you are in good shape. Just drink a little more water.`,
+          `${b.label} — not quite the gold standard but close. Your gut is doing fine, just needs a bit more fluid.`,
+        ],
+        [
+          `Came out a little firm today — nothing serious but their gut could use a bit more water.`,
+          `Came out as a ${b.label} — close to perfect but slightly firm. A bit more hydration and they will be fine.`,
+          `Their gut came out a little on the hard side today. Nothing to worry about — just needs more water.`,
+        ]
+      );
+    }
+    return undefined;
+  })();
+  if (r !== undefined) return r;
+
+  // ── Blob (T5) ──
+  r = (() => {
+    if (isBlob) {
+      // Blob + cramps|bloat (self only)
+      if (hasCramps || hasBloat) {
+        const r2 = p(
+          [
+            `Came out a little mushy and with ${hasCramps && hasBloat ? "cramps and bloating" : hasCramps ? "cramps" : "bloating"}. Your gut is a bit unsettled today — keep an eye on what you eat.`,
+            `Came out soft and mushy with some discomfort. Something is not sitting right. Lighter food and more water today.`,
+          ],
+          [] // partner falls through
+        );
+        if (r2 !== undefined) return r2;
+      }
+
+      // Blob plain (both)
+      return p(
+        [
+          `Came out a little mushy today — slightly softer than ideal but you are in the safe zone. Keep an eye on what you ate.`,
+          `Came out as a ${b.label} — a touch softer than perfect but nothing to worry about. Watch the dairy and processed food today.`,
+          `Came out soft and mushy which is fine, just not quite ideal. Your gut is a little unsettled but managing.`,
+          `Slightly mushier than you want. Not alarming but something might not have agreed with you today.`,
+        ],
+        [
+          `Came out a little mushy today — slightly softer than ideal but nothing to worry about.`,
+          `Their gut came out as a ${b.label} — a touch soft but in the safe zone. Worth keeping an eye on.`,
+          `Slightly mushy today. Their gut is a little unsettled but managing fine.`,
+        ]
+      );
+    }
+    return undefined;
+  })();
+  if (r !== undefined) return r;
+
+  // ── Any symptoms with no specific bristol match ──
+  r = (() => {
+    if (hasSymp) {
+      // Self: detailed sub-branches
+      if (!isPartner) {
+        if (hasCramps && hasBloat) {
+          return `Came out with cramps and bloating — your gut is clearly not happy right now. Take it easy, eat light, and drink plenty of water today.`;
+        }
+        if (hasCramps) {
+          return pick([
+            `Came out with cramps. A warm drink and some rest should help settle that down.`,
+            `You had cramps with that one. Could be stress or something you ate — take it easy and drink plenty of water.`,
+          ]);
+        }
+        if (hasBloat) {
+          return pick([
+            `Came out with some bloating. Try skipping dairy today and see if that helps.`,
+            `Feeling bloated after that one. Could be something you ate — ginger tea or skipping processed food might help.`,
+          ]);
+        }
+        if (hasUrgency) {
+          return pick([
+            `Came out with urgency — your gut had its own schedule today. Nothing to worry about unless it keeps happening.`,
+            `Your gut decided the timing on that one. Urgency is usually fine but worth noting if it becomes a pattern.`,
+          ]);
+        }
+      }
+
+      // Partner: generic catch-all
+      return p(
+        [],
+        [
+          `Came out with some ${syms.filter(s => s !== "none").join(" and ")} flagged. Worth a quick check-in.`,
+          `Their gut logged some symptoms today — ${syms.filter(s => s !== "none").join(", ")}. Hope they are feeling okay.`,
+        ]
+      );
+    }
+    return undefined;
+  })();
+  if (r !== undefined) return r;
+
+  // ── Volume only — no symptoms, no notable bristol ──
+  r = p(
+    [
       `That was a big one. Came out fine though — hope you feel a lot lighter now.`,
       `Gigantic volume today. Everything came out okay — your gut clearly had a lot stored up.`,
-      `That was a lot. Came out clean though, so your gut handled it well. How do you feel?`
-    ]);
-  }
-  if (isSmall) {
-    return pick([
+      `That was a lot. Came out clean though, so your gut handled it well. How do you feel?`,
+    ],
+    [] // partner: no volume-only branch; falls through to partner fallback
+  );
+  if (r !== undefined) return r;
+
+  r = p(
+    [
       `Small one today — sometimes that is all there is. Your gut said what it needed to say.`,
       `Tiny visit but it counts. Your gut checked in.`,
-      `Small volume today but that is perfectly normal. Your gut is doing its thing.`
-    ]);
-  }
+      `Small volume today but that is perfectly normal. Your gut is doing its thing.`,
+    ],
+    [] // partner: no volume-only branch; falls through to partner fallback
+  );
+  if (r !== undefined) return r;
 
-  return null;
+  // ── Fallback (partner: generic else; self: null) ──
+  return p(
+    [], // self returns null
+    [
+      `All logged — nothing concerning to report.`,
+      `Came out fine. Nothing unusual to note over there.`,
+      `Their gut checked in. Everything looks normal.`,
+    ]
+  );
+}
+
+// ── OBSERVATION PARAGRAPH (self) ──
+function buildObs(analysis) {
+  return buildObsCore(analysis, VOICE.SELF);
 }
 
 
@@ -858,23 +1075,10 @@ async function notifyPartner(loggedBy, bristolType, volume, symptoms, localHour,
   try {
     const partnerKey = loggedBy === "mike" ? "jenna" : "mike";
     const name       = loggedBy === "mike" ? "Mike" : "Jenna";
-    const b          = BRISTOL[parseInt(bristolType)] || BRISTOL[4];
-    const vol        = formatVolume(volume);
-    const syms       = symptoms || ["none"];
-    const hasSymp    = !syms.includes("none") && syms.length > 0;
-    const hasCramps  = syms.includes("cramps");
-    const hasBloat   = syms.includes("bloating");
-    const hasUrgency = syms.includes("urgency");
-    const hasBlood   = syms.includes("blood");
-    const isHard     = parseInt(bristolType) <= 2;
-    const isSoft     = parseInt(bristolType) === 4;
-    const isLoose    = parseInt(bristolType) >= 6;
-    const isCrackle  = parseInt(bristolType) === 3;
-    const isBlob     = parseInt(bristolType) === 5;
-    const isGig      = volume === "gigantic";
-    const isHuge     = volume === "huge";
-    const isSmall    = volume === "child_size" || volume === "small";
-    const count      = (logsToday || 0) + 1; // +1 because logsToday was counted before saving
+
+    const analysis = buildAnalysis({ bristolType, volume, symptoms, color: "brown", user: loggedBy });
+    const { b, vol } = analysis;
+    const count = (logsToday || 0) + 1; // +1 because logsToday was counted before saving
 
     // Time word for opener
     let timeWord;
@@ -896,130 +1100,8 @@ async function notifyPartner(loggedBy, bristolType, volume, symptoms, localHour,
       opener = `${name} logged again — ${b.label}, ${vol}. That is ${count} today.`;
     }
 
-    // ── BODY: one flowing paragraph ──
-    let body;
-
-    if (hasBlood) {
-      body = pick([
-        `Came out with blood flagged. Make sure they know to take that seriously if it keeps happening.`,
-        `They logged blood today. Could be nothing but worth keeping an eye on — check in on them.`,
-        `Blood was flagged in their log. Please make sure they do not ignore that if it shows up again.`
-      ]);
-    } else if (isHard && hasCramps) {
-      body = pick([
-        `Came out hard with cramps on top — that is a rough combination. Maybe check in on them and remind them to drink more water today.`,
-        `Hard and crampy, which sounds uncomfortable. They could probably use some water and a warm compress. Worth a quick check-in.`,
-        `Came out as a ${b.label} with cramps — their gut has been working hard. A nudge to hydrate and take it easy would go a long way.`,
-        `Hard stool and cramps together is no fun. Check in on them if you get a chance — they might appreciate it.`
-      ]);
-    } else if (isHard && hasBloat) {
-      body = pick([
-        `Came out hard with some bloating — their gut is not totally happy today. A nudge to drink more water and skip the dairy might help.`,
-        `Hard and bloated — double trouble. Remind them to hydrate and keep food light today.`,
-        `Came out as a ${b.label} with bloating on top. Their gut needs more fluids and probably lighter food today.`
-      ]);
-    } else if (isHard) {
-      const sizeNote = isGig || isHuge ? " Big volume too given how hard it was — that took some effort." : "";
-      body = pick([
-        `Came out hard — their gut is asking for more water.${sizeNote} Worth a gentle nudge to hydrate today.`,
-        `Came out as a ${b.label} which means things are moving a bit slowly over there.${sizeNote} Remind them to drink more water if you see them.`,
-        `Hard one today.${sizeNote} Classic sign of dehydration — they could use some water and fibre. Maybe mention it.`,
-        `Their gut came out hard which is not ideal.${sizeNote} A nudge to drink more water today would probably help.`
-      ]);
-    } else if (isLoose && hasCramps && hasBloat) {
-      body = pick([
-        `Came out loose with cramps and bloating — their gut is having a really rough time. Worth checking if they are okay.`,
-        `Loose, crampy, and bloated all at once. Their gut is not happy. Check in on them — they might need some support today.`,
-        `That is a lot going on at once. Came out loose with cramps and bloating — something clearly upset their gut. Hope they are okay.`
-      ]);
-    } else if (isLoose && hasCramps) {
-      body = pick([
-        `Came out loose with cramps — sounds uncomfortable. Worth checking in on them to see how they are doing.`,
-        `Loose and crampy today. Their gut is not happy — a check-in might go a long way right now.`,
-        `Came out loose and painful. Their gut is having a hard time today — hope they are resting up.`
-      ]);
-    } else if (isLoose && hasBloat) {
-      body = pick([
-        `Came out loose and a bit bloated — something is not sitting right. Check in on them if you can.`,
-        `Loose with bloating — their gut is unsettled today. A check-in and a reminder to drink water would help.`
-      ]);
-    } else if (isLoose) {
-      body = pick([
-        `Came out loose today — could be stress or something they ate. Hope they are staying hydrated.`,
-        `Running ${b.label.toLowerCase()} over there. Their gut needs some recovery time — fluids and rest.`,
-        `Came out loose. Nothing too serious but their gut is moving fast. Hope they are taking it easy today.`,
-        `${b.label} today for ${name}. Remind them to drink plenty of fluids and keep food plain for now.`
-      ]);
-    } else if (isSoft && hasCramps) {
-      body = pick([
-        `Came out clean and smooth which is great, but they had cramps with it. Worth asking how they are feeling.`,
-        `Good consistency — came out as a clean ${b.label} — but cramps tagged along. Could be stress. Worth a check-in.`,
-        `Came out perfectly but flagged cramps. Something is still bothering their gut even if the stool looks fine.`
-      ]);
-    } else if (isSoft && hasBloat) {
-      body = pick([
-        `Came out clean and smooth — consistency is perfect. The bloating is probably something they ate. Check in if you get a chance.`,
-        `Good drop, came out as a proper ${b.label}, but they are feeling bloated. Worth asking what they had today.`,
-        `Clean ${b.label} which is great, but they are bloated. Maybe ask if they had anything unusual to eat.`
-      ]);
-    } else if (isSoft && hasSymp) {
-      body = pick([
-        `Came out clean but flagged some symptoms. Everything looks fine consistency-wise — the symptoms are the thing to watch.`,
-        `Good drop but they had ${syms.filter(s => s !== "none").join(" and ")} with it. Worth checking in.`
-      ]);
-    } else if (isSoft) {
-      if (isGig) {
-        body = pick([
-          `Came out perfectly smooth — and that was a huge one. Their gut is clearly very happy today.`,
-          `Clean ${b.label} and massive volume. Their gut is absolutely thriving right now.`,
-          `That was a big clean one. Everything came out perfectly over there.`
-        ]);
-      } else if (isHuge) {
-        body = pick([
-          `Came out clean and smooth with good volume. Their gut is in really good shape today.`,
-          `Clean ${b.label} with solid volume. Everything is going well over there.`,
-          `Came out perfectly. Their gut is happy and healthy today.`
-        ]);
-      } else if (isSmall) {
-        body = pick([
-          `Came out clean — small volume but the consistency is perfect. All good over there.`,
-          `Small but came out as a clean ${b.label}. Their gut is doing its job properly.`,
-          `Came out fine. Small one today but everything looks healthy.`
-        ]);
-      } else {
-        body = pick([
-          `Came out clean and smooth — their gut is happy today. Nothing to worry about.`,
-          `Came out perfectly. ${b.label}, smooth, no complaints at all from their gut today.`,
-          `Clean ${b.label}. Everything is looking good over there today.`,
-          `Came out exactly right. Their gut is in a good place today.`,
-          `Perfect drop on their end. Smooth, clean, no issues.`,
-          `All good over there — came out as a clean ${b.label} with nothing to report.`
-        ]);
-      }
-    } else if (isCrackle) {
-      body = pick([
-        `Came out a little firm today — nothing serious but their gut could use a bit more water.`,
-        `Came out as a ${b.label} — close to perfect but slightly firm. A bit more hydration and they will be fine.`,
-        `Their gut came out a little on the hard side today. Nothing to worry about — just needs more water.`
-      ]);
-    } else if (isBlob) {
-      body = pick([
-        `Came out a little mushy today — slightly softer than ideal but nothing to worry about.`,
-        `Their gut came out as a ${b.label} — a touch soft but in the safe zone. Worth keeping an eye on.`,
-        `Slightly mushy today. Their gut is a little unsettled but managing fine.`
-      ]);
-    } else if (hasSymp) {
-      body = pick([
-        `Came out with some ${syms.filter(s => s !== "none").join(" and ")} flagged. Worth a quick check-in.`,
-        `Their gut logged some symptoms today — ${syms.filter(s => s !== "none").join(", ")}. Hope they are feeling okay.`
-      ]);
-    } else {
-      body = pick([
-        `All logged — nothing concerning to report.`,
-        `Came out fine. Nothing unusual to note over there.`,
-        `Their gut checked in. Everything looks normal.`
-      ]);
-    }
+    // ── BODY: shared observation tree — single source of truth ──
+    const body = buildObsCore(analysis, VOICE.PARTNER);
 
     const msg = `${opener}\n\n${body}`;
 
