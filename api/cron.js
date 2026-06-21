@@ -7,17 +7,8 @@
 //   3. Weekly recap (Sunday 8am local time)
 // ============================================================
 
-const { initializeApp, getApps, cert } = require("firebase-admin/app");
-const { getFirestore, Timestamp }       = require("firebase-admin/firestore");
-
-if (!getApps().length) {
-  const sa = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8"));
-  initializeApp({ credential: cert(sa) });
-}
-
-const db  = getFirestore();
-const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const API = `https://api.telegram.org/bot${BOT}`;
+const { db, BOT, API } = require("./lib/firebase");
+const { Timestamp }     = require("firebase-admin/firestore");
 
 const USERS_CONFIG = {
   mike:  { tz: "Australia/Melbourne", name: "Mike"  },
@@ -45,6 +36,7 @@ const DEFAULT_REMINDERS = {
 };
 
 const { getTodayStr, formatLocalDate } = require("./lib/time");
+const { isRecapDue } = require("./lib/recap");
 
 
 // ── HANDLER ──
@@ -104,8 +96,11 @@ async function processUser(userId, config, force) {
     const actions = [];
 
     // ── 1. WEEKLY RECAP ──
-    const doRecap = force === "recap" || force === "all" || (localDay === 7 && localHour === 8);
-    if (doRecap) {
+    const forceRecap = force === "recap" || force === "all";
+
+    // Check if recap already sent this week (wider window: Sun 6am-12pm)
+    const recapSentThisWeek = !forceRecap && await hasRecapBeenSentThisWeek(userId, config.tz);
+    if (isRecapDue(localDay, localHour, recapSentThisWeek, forceRecap)) {
       const sent = await sendWeeklyRecap(userId, config);
       actions.push({ type: "recap", sent, forced: !!force });
     }
@@ -427,6 +422,25 @@ async function hasLoggedToday(userId, tz) {
     const ts = doc.data().timestamp?.toDate();
     if (!ts) return false;
     return formatLocalDate(ts, tz) === todayStr;
+  });
+}
+
+
+// ── HAS RECAP BEEN SENT THIS WEEK ──
+async function hasRecapBeenSentThisWeek(userId, tz) {
+  const now  = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const snap = await db.collection("reminder_logs")
+    .where("user", "==", userId)
+    .where("type", "==", "weekly_recap")
+    .orderBy("sentAt", "desc")
+    .limit(10)
+    .get();
+
+  return snap.docs.some(doc => {
+    const sentDate = doc.data().sentAt?.toDate();
+    return sentDate && sentDate >= weekAgo;
   });
 }
 

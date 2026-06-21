@@ -4,21 +4,11 @@
 // Deployed as a Vercel serverless function.
 // ============================================================
 
-const { initializeApp, getApps, cert } = require("firebase-admin/app");
-const { getFirestore, Timestamp }       = require("firebase-admin/firestore");
+const { db, BOT, API } = require("./lib/firebase");
+const { Timestamp } = require("firebase-admin/firestore");
 const { escapeMarkdown } = require("./lib/escape");
 
-// ── FIREBASE ADMIN INIT ──
-if (!getApps().length) {
-  const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8")
-  );
-  initializeApp({ credential: cert(serviceAccount) });
-}
-
-const db  = getFirestore();
-const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const API = `https://api.telegram.org/bot${BOT}`;
+// ── FIREBASE ADMIN INIT (see api/lib/firebase.js) ──
 
 // ── BRISTOL INFO ──
 const BRISTOL = {
