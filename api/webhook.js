@@ -5,7 +5,8 @@
 // ============================================================
 
 const { db, BOT, API } = require("./lib/firebase");
-const { Timestamp }     = require("firebase-admin/firestore");
+const { Timestamp } = require("firebase-admin/firestore");
+const { escapeMarkdown } = require("./lib/escape");
 
 // ── FIREBASE ADMIN INIT (see api/lib/firebase.js) ──
 
@@ -140,7 +141,7 @@ async function handleMessage(msg) {
   // Handle conversation state
   const session = await getSession(chatId);
   if (session) {
-    await handleConversation(chatId, user, text, session);
+    await handleConversation(chatId, user, text, session, msg);
     return;
   }
 
@@ -452,7 +453,7 @@ async function handleLogCallback(chatId, msgId, user, field, value) {
 
 
 // ── SAVE LOG ──
-async function saveLog(chatId, data, msgId) {
+async function saveLog(chatId, data, msgId, replyToMsgId = null) {
   if (data.backdatedTimestamp) {
     data.timestamp = Timestamp.fromDate(data.backdatedTimestamp);
     delete data.backdatedTimestamp;
@@ -483,6 +484,8 @@ async function saveLog(chatId, data, msgId) {
 
     if (msgId) {
       await editMsg(chatId, msgId, msg, null, { parse_mode: "Markdown" });
+    } else if (replyToMsgId) {
+      await sendMsg(chatId, msg, null, { parse_mode: "Markdown", reply_to_message_id: replyToMsgId });
     } else {
       await sendMsg(chatId, msg, null, { parse_mode: "Markdown" });
     }
@@ -611,7 +614,9 @@ function buildConfirmationMsg({ data, localHour, streak, daysSince, logsToday })
 
   // Notes — woven in last, seamlessly
   if (data.notes) {
-    const note = data.notes.trim().charAt(0).toLowerCase() + data.notes.trim().slice(1).replace(/\.$/, "");
+    const note = escapeMarkdown(
+      data.notes.trim().charAt(0).toLowerCase() + data.notes.trim().slice(1).replace(/\.$/, "")
+    );
     b2.push(pick([
       `You also mentioned that ${note}.`,
       `Worth noting — ${note}.`,
@@ -1345,7 +1350,7 @@ async function handlePresetCallback(chatId, msgId, user, field, value) {
 
 
 // ── CONVERSATION (text replies during session) ──
-async function handleConversation(chatId, user, text, session) {
+async function handleConversation(chatId, user, text, session, msg) {
   if (session.step === "time") {
     const timeRegex = /^([01]?\d|2[0-3]):([0-5]\d)$/;
     if (!timeRegex.test(text.trim())) {
@@ -1358,7 +1363,7 @@ async function handleConversation(chatId, user, text, session) {
 
   if (session.step === "notes") {
     session.data.notes = text;
-    await saveLog(chatId, session.data, null);
+    await saveLog(chatId, session.data, null, msg?.message_id);
     return;
   }
 
