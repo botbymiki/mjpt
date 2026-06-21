@@ -5,19 +5,8 @@
 // Access: /api/admin?key=your_admin_key
 // ============================================================
 
-const { initializeApp, getApps, cert } = require("firebase-admin/app");
-const { getFirestore, Timestamp }       = require("firebase-admin/firestore");
-
-if (!getApps().length) {
-  const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8")
-  );
-  initializeApp({ credential: cert(serviceAccount) });
-}
-
-const db  = getFirestore();
-const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const API = `https://api.telegram.org/bot${BOT}`;
+const { db, BOT, API } = require("./lib/firebase");
+const { Timestamp }     = require("firebase-admin/firestore");
 
 
 // ── HANDLER ──

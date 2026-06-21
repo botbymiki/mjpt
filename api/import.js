@@ -5,17 +5,8 @@
 // POST with { user: "mike"|"jenna", csv: "...raw csv string..." }
 // ============================================================
 
-const { initializeApp, getApps, cert } = require("firebase-admin/app");
-const { getFirestore, Timestamp }       = require("firebase-admin/firestore");
-
-if (!getApps().length) {
-  const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8")
-  );
-  initializeApp({ credential: cert(serviceAccount) });
-}
-
-const db = getFirestore();
+const { db }   = require("./lib/firebase");
+const { Timestamp } = require("firebase-admin/firestore");
 
 
 // ── COMPOSITION → BRISTOL TYPE ──
