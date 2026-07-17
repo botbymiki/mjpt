@@ -9,9 +9,12 @@ const { initializeApp, getApps, cert } = require("firebase-admin/app");
 const { getFirestore }                 = require("firebase-admin/firestore");
 
 if (!getApps().length) {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT || "";
+  console.log(`[firebase debug] raw b64 length: ${raw.length}`); // TEMP — remove after debugging
   const serviceAccount = JSON.parse(
-    Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8")
+    Buffer.from(raw, "base64").toString("utf8")
   );
+  console.log(`[firebase debug] client_email: ${serviceAccount.client_email}, key_id: ${serviceAccount.private_key_id}`); // TEMP — remove after debugging
   initializeApp({ credential: cert(serviceAccount) });
 }
 
