@@ -1379,25 +1379,6 @@ async function handleConversation(chatId, user, text, session, msg) {
 module.exports = async (req, res) => {
   // GET test route
   if (req.method === "GET") {
-    if (req.url.includes("rawauth=1")) {
-      try {
-        const serviceAccount = JSON.parse(
-          Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8")
-        );
-        const { cert } = require("firebase-admin/app");
-        const credential = cert(serviceAccount);
-        const tokenResponse = await credential.getAccessToken();
-        return res.status(200).json({ ok: true, token_acquired: !!tokenResponse.access_token, server_time: new Date().toISOString() });
-      } catch (err) {
-        return res.status(200).json({
-          ok: false,
-          server_time: new Date().toISOString(),
-          error_message: err.message,
-          error_response_data: err.response?.data || null,
-          error_code: err.code || null
-        });
-      }
-    }
     try {
       await db.collection("config").doc("settings").get();
       return res.status(200).json({ ok: true, firebase: "connected" });
