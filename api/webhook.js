@@ -1155,7 +1155,10 @@ async function sendMsg(chatId, text, keyboard, opts = {}) {
     text,
     ...opts
   };
-  if (keyboard) body.reply_markup = { inline_keyboard: keyboard };
+  if (keyboard) {
+    const kb = Array.isArray(keyboard) ? keyboard : keyboard.inline_keyboard;
+    body.reply_markup = { inline_keyboard: kb };
+  }
   const res = await fetch(`${API}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
