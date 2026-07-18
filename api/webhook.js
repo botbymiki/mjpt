@@ -1376,7 +1376,7 @@ async function handleConversation(chatId, user, text, session, msg) {
 module.exports = async (req, res) => {
   // GET test route
   if (req.method === "GET") {
-    if (req.query.rawauth === "1") {
+    if (req.url.includes("rawauth=1")) {
       try {
         const serviceAccount = JSON.parse(
           Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, "base64").toString("utf8")
